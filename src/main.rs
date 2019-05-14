@@ -3,6 +3,8 @@ Goal:
     Empty pictures from sd-card and upload to google images without user interaction
 
 Features:
+    Generate list of file to process
+
     Detect sd-card is inserted
     Delete successfuly uploaded files
     Send notification (email, IM, whatever) when certain events happens
@@ -30,6 +32,12 @@ Features:
 
 */
 
+use std::fs;
+
 fn main() {
-    println!("Hello, worlds!", { s });
+    process_dir("./testdir")
+}
+
+fn process_dir(directory: &str) {
+    let lol = fs::read_dir(directory);
 }
