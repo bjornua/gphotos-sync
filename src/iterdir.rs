@@ -43,7 +43,7 @@ impl Iterator for RecursiveIterDir {
                     let dir = self.directories.pop()?;
                     match read_dir(&dir) {
                         Ok(dir_iter) => {
-                            self.cur = Some((dir, dir_iter));
+                            self.cur.replace((dir, dir_iter));
                             self.cur.as_mut().unwrap()
                         }
                         Err(e) => {
