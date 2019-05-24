@@ -1,5 +1,6 @@
 use crate::open;
-use hyper::rt::Future;
+
+use futures::{sync::oneshot::channel, Future};
 use hyper::service::service_fn_ok;
 use hyper::{Body, Request, Response, Server};
 use std::io;
@@ -20,18 +21,19 @@ fn open_authentication_url() -> Result<(), OpenAuthenticationURLError> {
     }
 }
 
-fn hello_world(req: Request<Body>) -> Response<Body> {
+fn hello_world(_req: Request<Body>) -> Response<Body> {
     Response::new(Body::from("Hello, World!"))
 }
 
 fn get_authentication_response() -> Result<(), OpenAuthenticationURLError> {
     let addr = ([127, 0, 0, 1], 3000).into();
-    let (shutdown_sender, shutdown_receiver) = futures::sync::oneshot::channel();
-    let shutdown_sender = Arc::new(Mutex::new(shutdown_sender));
-    let make_service = || {
-        service_fn_ok(|r| {
-            let lol = Arc::clone(&shutdown_sender).lock().unwrap();
-            lol.send(());
+    let (shutdown_sender, shutdown_receiver) = channel();
+    let shutdown_sender = Arc::new(Mutex::new(Some(shutdown_sender)));
+    let make_service = move || {
+        let lol = Arc::clone(&shutdown_sender);
+        service_fn_ok(move |r| {
+            let l = lol.lock().ok();
+            l.and_then(|v| v.take()).map(|c| c.send(()));
             hello_world(r)
         })
     };
