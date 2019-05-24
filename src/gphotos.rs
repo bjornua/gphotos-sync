@@ -13,9 +13,9 @@ enum OpenAuthenticationURLError {
     IOError(io::Error),
 }
 
-fn open_authentication_url() -> Result<(), OpenAuthenticationURLError> {
-    let status =
-        open::that("http://127.0.0.1:3000").map_err(OpenAuthenticationURLError::IOError)?;
+fn open_authentication_url(port: u16) -> Result<(), OpenAuthenticationURLError> {
+    let status = open::that(format!("http://127.0.0.1:{}", port))
+        .map_err(OpenAuthenticationURLError::IOError)?;
     match status.success() {
         true => Ok(()),
         false => Err(OpenAuthenticationURLError::NonZeroExitCode),
@@ -43,6 +43,7 @@ fn get_authentication_response() -> Result<(), OpenAuthenticationURLError> {
         .serve(make_service)
         .with_graceful_shutdown(shutdown_receiver)
         .map_err(|e| eprintln!("server error: {}", e));
+    println!("Running server");
 
     let _ = current_thread::Runtime::new()
         .unwrap()
