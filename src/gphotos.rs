@@ -3,6 +3,7 @@ use hyper::rt::Future;
 use hyper::service::service_fn_ok;
 use hyper::{Body, Request, Response, Server};
 use std::io;
+use std::sync::{Arc, Mutex};
 
 #[derive(Debug)]
 enum OpenAuthenticationURLError {
@@ -11,36 +12,36 @@ enum OpenAuthenticationURLError {
 }
 
 fn open_authentication_url() -> Result<(), OpenAuthenticationURLError> {
-    let status = open::that("https://google.com").map_err(OpenAuthenticationURLError::IOError)?;
+    let status =
+        open::that("http://127.0.0.1:3000").map_err(OpenAuthenticationURLError::IOError)?;
     match status.success() {
         true => Ok(()),
         false => Err(OpenAuthenticationURLError::NonZeroExitCode),
     }
 }
 
-const PHRASE: &str = "Hello, World!";
-
-fn hello_world(_req: Request<Body>) -> Response<Body> {
-    Response::new(Body::from(PHRASE))
+fn hello_world(req: Request<Body>) -> Response<Body> {
+    Response::new(Body::from("Hello, World!"))
 }
 
 fn get_authentication_response() -> Result<(), OpenAuthenticationURLError> {
-    // This is our socket address...
     let addr = ([127, 0, 0, 1], 3000).into();
-
-    // A `Service` is needed for every connection, so this
-    // creates one from our `hello_world` function.
-    let new_svc = || {
-        // service_fn_ok converts our function into a `Service`
-        service_fn_ok(hello_world)
+    let (shutdown_sender, shutdown_receiver) = futures::sync::oneshot::channel();
+    let shutdown_sender = Arc::new(Mutex::new(shutdown_sender));
+    let make_service = || {
+        service_fn_ok(|r| {
+            let lol = Arc::clone(&shutdown_sender).lock().unwrap();
+            lol.send(());
+            hello_world(r)
+        })
     };
-
     let server = Server::bind(&addr)
-        .serve(new_svc)
+        .serve(make_service)
+        .with_graceful_shutdown(shutdown_receiver)
         .map_err(|e| eprintln!("server error: {}", e));
 
-    // Run this server for... forever!
     hyper::rt::run(server);
+    Ok(())
 }
 
 #[derive(Debug)]
@@ -51,8 +52,8 @@ enum AuthenticationError {
 
 fn authenticate() -> Result<(), AuthenticationError> {
     open_authentication_url().map_err(AuthenticationError::OpenAuthenticationURL)?;
+    let _result = get_authentication_response();
     return Ok(());
-    // let result = start_response_server();
 }
 
 pub fn main() {

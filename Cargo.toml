@@ -4,6 +4,8 @@ version = "0.1.0"
 authors = ["Bjørn Arnholtz <bjorn.arnholtz@gmail.com>"]
 edition = "2018"
 
+
 [dependencies]
 open = "1.2"
 hyper = "0.12"
+futures = "0.1.27"
