@@ -3,9 +3,10 @@ use crate::open;
 use futures::{sync::oneshot::channel, Future};
 use hyper::service::service_fn_ok;
 use hyper::{Body, Request, Response, Server};
+use std::cell::RefCell;
 use std::io;
-use std::sync::{Arc, Mutex};
-
+use std::rc::Rc;
+use tokio::runtime::current_thread;
 #[derive(Debug)]
 enum OpenAuthenticationURLError {
     NonZeroExitCode,
@@ -28,21 +29,26 @@ fn hello_world(_req: Request<Body>) -> Response<Body> {
 fn get_authentication_response() -> Result<(), OpenAuthenticationURLError> {
     let addr = ([127, 0, 0, 1], 3000).into();
     let (shutdown_sender, shutdown_receiver) = channel();
-    let shutdown_sender = Arc::new(Mutex::new(Some(shutdown_sender)));
+    let shutdown_sender = Rc::new(RefCell::new(Some(shutdown_sender)));
     let make_service = move || {
-        let lol = Arc::clone(&shutdown_sender);
+        let lol = Rc::clone(&shutdown_sender);
         service_fn_ok(move |r| {
-            let l = lol.lock().ok();
-            l.and_then(|v| v.take()).map(|c| c.send(()));
+            lol.borrow_mut().take().and_then(|r| r.send(()).ok());
             hello_world(r)
         })
     };
+    let exec = current_thread::TaskExecutor::current();
     let server = Server::bind(&addr)
+        .executor(exec)
         .serve(make_service)
         .with_graceful_shutdown(shutdown_receiver)
         .map_err(|e| eprintln!("server error: {}", e));
 
-    hyper::rt::run(server);
+    let _ = current_thread::Runtime::new()
+        .unwrap()
+        .spawn(server)
+        .run()
+        .unwrap();
     Ok(())
 }
 

@@ -1,4 +1,4 @@
-use std::ffi::{OsStr, OsString};
+use std::ffi::OsString;
 use std::fs::{read_dir, DirEntry, ReadDir};
 
 #[derive(Debug)]
