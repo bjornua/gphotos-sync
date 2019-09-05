@@ -26,14 +26,12 @@ fn hello_world(_req: Request<Body>) -> Response<Body> {
     Response::new(Body::from("Hello, World!"))
 }
 
-fn get_authentication_response() -> Result<(), OpenAuthenticationURLError> {
-    let addr = ([127, 0, 0, 1], 3000).into();
-    let (shutdown_sender, shutdown_receiver) = channel();
-    let shutdown_sender = Rc::new(RefCell::new(Some(shutdown_sender)));
+fn get_authentication_response(port: u16) -> Result<(), OpenAuthenticationURLError> {
+    let addr = ([127, 0, 0, 1], port).into();
+    let (shutdown_sender, shutdown_receiver) = channel::<u64>();
     let make_service = move || {
-        let lol = Rc::clone(&shutdown_sender);
         service_fn_ok(move |r| {
-            lol.borrow_mut().take().and_then(|r| r.send(()).ok());
+            (&shutdown_sender).send(64).ok();
             hello_world(r)
         })
     };
@@ -61,7 +59,7 @@ enum AuthenticationError {
 
 fn authenticate() -> Result<(), AuthenticationError> {
     open_authentication_url(4000).map_err(AuthenticationError::OpenAuthenticationURL)?;
-    let _result = get_authentication_response();
+    let _result = get_authentication_response(4000);
     return Ok(());
 }
 
