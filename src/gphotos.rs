@@ -60,7 +60,7 @@ enum AuthenticationError {
 }
 
 fn authenticate() -> Result<(), AuthenticationError> {
-    open_authentication_url().map_err(AuthenticationError::OpenAuthenticationURL)?;
+    open_authentication_url(4000).map_err(AuthenticationError::OpenAuthenticationURL)?;
     let _result = get_authentication_response();
     return Ok(());
 }
