@@ -1,6 +1,6 @@
 use crate::open;
 
-use futures::{sync::oneshot::channel, Future};
+use futures::{sync::oneshot::channel, Canceled, Future};
 use hyper::service::service_fn_ok;
 use hyper::{Body, Request, Response, Server};
 use std::cell::RefCell;
@@ -26,15 +26,32 @@ fn hello_world(_req: Request<Body>) -> Response<Body> {
     Response::new(Body::from("Hello, World!"))
 }
 
-fn get_authentication_response(port: u16) -> Result<(), OpenAuthenticationURLError> {
+#[derive(Debug)]
+enum AuthenticationServerError {
+    RuntimeCancelled(Canceled),
+}
+
+fn get_authentication_response(port: u16) -> Result<u64, AuthenticationServerError> {
     let addr = ([127, 0, 0, 1], port).into();
-    let (shutdown_sender, shutdown_receiver) = channel::<u64>();
+    let (result_sender, result_receiver) = channel::<u64>();
+    let result_sender = Rc::new(RefCell::new(Some(result_sender)));
     let make_service = move || {
+        let result_sender = Rc::clone(&result_sender);
         service_fn_ok(move |r| {
-            (&shutdown_sender).send(64).ok();
+            result_sender
+                .borrow_mut()
+                .take()
+                .and_then(|r| r.send(64).ok());
             hello_world(r)
         })
     };
+
+    let (shutdown_sender, shutdown_receiver) = channel::<()>();
+    let result_receiver = result_receiver.map(|x| {
+        let _ = shutdown_sender.send(());
+        return x;
+    });
+
     let exec = current_thread::TaskExecutor::current();
     let server = Server::bind(&addr)
         .executor(exec)
@@ -43,24 +60,24 @@ fn get_authentication_response(port: u16) -> Result<(), OpenAuthenticationURLErr
         .map_err(|e| eprintln!("server error: {}", e));
     println!("Running server");
 
-    let _ = current_thread::Runtime::new()
+    return current_thread::Runtime::new()
         .unwrap()
         .spawn(server)
-        .run()
-        .unwrap();
-    Ok(())
+        .block_on(result_receiver)
+        .map_err(AuthenticationServerError::RuntimeCancelled);
 }
 
 #[derive(Debug)]
 enum AuthenticationError {
-    OpenAuthenticationURL(OpenAuthenticationURLError),
-    AuthenticationServer,
+    OpenAuthenticationURLError(OpenAuthenticationURLError),
+    AuthenticationServerError(AuthenticationServerError),
 }
 
-fn authenticate() -> Result<(), AuthenticationError> {
-    open_authentication_url(4000).map_err(AuthenticationError::OpenAuthenticationURL)?;
-    let _result = get_authentication_response(4000);
-    return Ok(());
+fn authenticate() -> Result<u64, AuthenticationError> {
+    open_authentication_url(4000).map_err(AuthenticationError::OpenAuthenticationURLError)?;
+    let result = get_authentication_response(4000)
+        .map_err(AuthenticationError::AuthenticationServerError)?;
+    return Ok(result);
 }
 
 pub fn main() {
