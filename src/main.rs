@@ -27,27 +27,31 @@ extern crate clap;
 extern crate futures;
 extern crate hyper;
 extern crate open;
-mod gphotos;
+extern crate url;
+
+use clap::{App, AppSettings};
+
+mod commands;
 mod iterdir;
-mod process;
+
+use std::alloc::System;
+
+#[global_allocator]
+static GLOBAL: System = System;
 
 fn main() -> () {
-    let matches = clap::App::new("sd-photo-uploader")
+    let app = App::new("sd-photo-uploader")
+        .setting(AppSettings::SubcommandRequiredElseHelp)
         .version("0.1")
         .author("Bjørn Arnholtz. <bjorn.arnholtz@gmail.com>")
         .about("Uploads photos from a certain directory to google photos")
-        // .args_from_usage(
-        //     "-c, --config=[FILE] 'Sets a custom config file'
-        //                       <INPUT>              'Sets the input file to use'
-        //                       -v...                'Sets the level of verbosity'",
-        // )
-        .subcommand(
-            clap::SubCommand::with_name("test")
-                .about("controls testing features")
-                .version("1.3")
-                .author("Someone E. <someone_else@other.com>")
-                .arg_from_usage("-d, --debug 'Print debug information'"),
-        )
-        .get_matches();
-    gphotos::main();
+        .subcommand(commands::authenticate::get_subcommand())
+        .subcommand(commands::upload::get_subcommand());
+    let matches = app.get_matches();
+
+    match matches.subcommand() {
+        ("upload", Some(args)) => commands::upload::main(args),
+        ("authenticate", Some(args)) => commands::authenticate::main(args),
+        (_, _) => unimplemented!(),
+    }
 }
