@@ -4,9 +4,8 @@ use futures::{sync::oneshot::channel, Canceled, Future};
 use hyper::service::service_fn_ok;
 use hyper::{Body, Request, Response, Server};
 use percent_encoding::percent_encode;
-use std::cell::RefCell;
+
 use std::io;
-use std::rc::Rc;
 use tokio::runtime::current_thread;
 #[derive(Debug)]
 enum OpenAuthenticationURLError {

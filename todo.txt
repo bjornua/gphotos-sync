@@ -1,0 +1,4 @@
+* Get access token from google
+* Get relevant privileges from google
+
+https://accounts.google.com/o/oauth2/v2/auth?redirect_uri=http%3A%2F%2F127.0.0.1:8276%2F&prompt=consent&response_type=code&client_id=529339861110-tppfskj6n90kk71ic9tqetm3l7471p6q.apps.googleusercontent.com&scope=https%3A%2F%2Fwww.googleapis.com%2Fauth%2Fphotoslibrary.readonly&access_type=offline
