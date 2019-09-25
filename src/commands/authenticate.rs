@@ -31,13 +31,15 @@ enum AuthenticationError {
 
 fn authenticate() -> Result<String, AuthenticationError> {
     open_authentication_url();
-    let result = get_authentication_response()
-        .map_err(AuthenticationError::GetAuthenticationResponseError)
-        .and_then(|code| {
-            redeem_response_code(&code).map_err(AuthenticationError::RedeemResponseCodeError)
-        });
+    // let result = get_authentication_response()
+    //     .map_err(AuthenticationError::GetAuthenticationResponseError)
+    //     .and_then(|code| {
+    //         println!("{}", code);
+    //         redeem_response_code(&code).map_err(AuthenticationError::RedeemResponseCodeError)
+    //     });
 
-    let response_code = current_thread::Runtime::new().unwrap().block_on(result)?;
+    // let response_code = current_thread::Runtime::new().unwrap().block_on(result)?;
+    let response_code = current_thread::Runtime::new().unwrap().block_on(redeem_response_code("").map_err(AuthenticationError::RedeemResponseCodeError))?;
 
     return Ok(response_code);
 }
