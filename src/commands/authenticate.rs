@@ -1,45 +1,61 @@
 use crate::open;
 use clap::{App, ArgMatches, SubCommand};
 use futures::Stream;
-use futures::{future, sync::oneshot::channel, Future};
+use futures::{sync::oneshot::channel, Future};
+use hyper;
 use hyper::service::service_fn_ok;
-use hyper::{Body, Request, Response, Server};
-use percent_encoding::percent_decode;
+use percent_encoding;
 use reqwest;
-use serde::{Deserialize, Serialize};
+use serde;
 use std::borrow::Cow;
 use std::cell::RefCell;
 use std::ffi::OsString;
-use std::io::Read;
+use std::path;
 use std::rc::Rc;
-use std::string;
 use std::thread::spawn;
 use tokio::runtime::current_thread;
+
 pub fn get_subcommand() -> App<'static, 'static> {
     SubCommand::with_name("authenticate").about("Authenticate with Google")
 }
 
+#[derive(serde::Serialize)]
+struct Config {
+    refresh_token: String,
+}
+
 pub fn main(_matches: &ArgMatches) {
-    println!("{:?}", authenticate());
+    if path::Path::new("./config.json").exists() {
+        println!("Configuration file already exists. Cannot overwrite.");
+        return;
+    }
+    let refresh_token = match oauth() {
+        Ok(refresh_token) => refresh_token,
+        Err(error) => {
+            println!("{:?}", error);
+            return;
+        }
+    };
+    let test = serde_json::to_string_pretty(&Config { refresh_token }).unwrap();
+    println!("{}", test);
 }
 
 #[derive(Debug)]
-enum AuthenticationError {
-    GetAuthenticationResponseError(GetAuthenticationResponseError),
-    RedeemResponseCodeError(RedeemResponseCodeError),
+enum OauthError {
+    OauthAuthError(OauthAuthError),
+    OauthTokenError(OauthTokenError),
 }
 
-fn authenticate() -> Result<String, AuthenticationError> {
-    open_authentication_url();
-    // let result = get_authentication_response()
-    //     .map_err(AuthenticationError::GetAuthenticationResponseError)
-    //     .and_then(|code| {
-    //         println!("{}", code);
-    //         redeem_response_code(&code).map_err(AuthenticationError::RedeemResponseCodeError)
-    //     });
+fn oauth() -> Result<String, OauthError> {
+    oauth_start_browser();
+    let auth_code_future = oauth_auth().map_err(OauthError::OauthAuthError);
 
-    // let response_code = current_thread::Runtime::new().unwrap().block_on(result)?;
-    let response_code = current_thread::Runtime::new().unwrap().block_on(redeem_response_code("").map_err(AuthenticationError::RedeemResponseCodeError))?;
+    let refresh_token_future =
+        auth_code_future.and_then(|code| oauth_token(&code).map_err(OauthError::OauthTokenError));
+
+    let response_code = current_thread::Runtime::new()
+        .unwrap()
+        .block_on(refresh_token_future)?;
 
     return Ok(response_code);
 }
@@ -48,23 +64,28 @@ const CLIENT_ID: &'static str =
     "529339861110-lnubi506ma1cj16dtfl0sltdrepp0tmm.apps.googleusercontent.com";
 const CLIENT_SECRET: &'static str = "pvykCj4vs1-JVVPazC-F8xht";
 const ENDPOINT: &'static str = "https://accounts.google.com/o/oauth2/v2/auth";
-const SCOPE: &'static str = "https%3A%2F%2Fwww.googleapis.com%2Fauth%2Fphotoslibrary.appendonly";
-const REDIRECT_URI: &'static str = "http%3A%2F%2Flocalhost%3A3000%2F";
+const SCOPE: &'static str = "https://www.googleapis.com/auth/photoslibrary.appendonly";
+const REDIRECT_URI: &'static str = "http://localhost:3000/";
 
-fn open_authentication_url() -> () {
+fn oauth_start_browser() -> () {
     open_spawn(format!(
         "{:}?response_type=code&client_id={:}&redirect_uri={:}&scope={:}",
-        ENDPOINT, CLIENT_ID, REDIRECT_URI, SCOPE
+        ENDPOINT,
+        percent_encoding::utf8_percent_encode(CLIENT_ID, percent_encoding::NON_ALPHANUMERIC),
+        percent_encoding::utf8_percent_encode(REDIRECT_URI, percent_encoding::NON_ALPHANUMERIC),
+        percent_encoding::utf8_percent_encode(SCOPE, percent_encoding::NON_ALPHANUMERIC),
     ));
 }
 
-fn parse_oauth_return(req: Request<Body>) -> (Response<Body>, Option<String>) {
+fn parse_oauth_return(
+    req: hyper::Request<hyper::Body>,
+) -> (hyper::Response<hyper::Body>, Option<String>) {
     let code = req
         .uri()
         .query()
         .and_then(|q| get_query_parameter("code", q));
     (
-        Response::new(Body::from(
+        hyper::Response::new(hyper::Body::from(
             "sd-photo-uploader is now authenticated. You can close this page now.",
         )),
         code.map(|s| s.into_owned()),
@@ -72,13 +93,12 @@ fn parse_oauth_return(req: Request<Body>) -> (Response<Body>, Option<String>) {
 }
 
 #[derive(Debug)]
-enum GetAuthenticationResponseError {
+enum OauthAuthError {
     AuthResponseServer(hyper::Error),
     ResultCanceled(futures::Canceled),
 }
 
-fn get_authentication_response(
-) -> impl Future<Item = String, Error = GetAuthenticationResponseError> {
+fn oauth_auth() -> impl Future<Item = String, Error = OauthAuthError> {
     let addr = ([127, 0, 0, 1], 3000).into();
     let (result_sender, result_receiver) = channel();
     let result_sender = Rc::new(RefCell::new(Some(result_sender)));
@@ -104,27 +124,31 @@ fn get_authentication_response(
 
     let exec = current_thread::TaskExecutor::current();
 
-    let server = Server::bind(&addr)
+    let server = hyper::Server::bind(&addr)
         .executor(exec)
         .serve(make_service)
         .with_graceful_shutdown(shutdown_receiver)
-        .map_err(GetAuthenticationResponseError::AuthResponseServer);
+        .map_err(OauthAuthError::AuthResponseServer);
 
     return server
-        .join(result_receiver.map_err(GetAuthenticationResponseError::ResultCanceled))
+        .join(result_receiver.map_err(OauthAuthError::ResultCanceled))
         .map(|(_, m)| m);
     ;
 }
 
 fn parse_query_string<'a>(query: &'a str) -> impl Iterator<Item = (Cow<'a, str>, Cow<'a, str>)> {
     query.split('&').map(|a| {
-        let mut lol = a.splitn(2, '=');
+        let mut pair = a.splitn(2, '=');
         return (
-            percent_decode(lol.next().unwrap().as_ref())
+            percent_encoding::percent_decode(pair.next().unwrap().as_ref())
                 .decode_utf8()
                 .unwrap(),
-            lol.next()
-                .map(|s| percent_decode(s.as_ref()).decode_utf8().unwrap())
+            pair.next()
+                .map(|s| {
+                    percent_encoding::percent_decode(s.as_ref())
+                        .decode_utf8()
+                        .unwrap()
+                })
                 .unwrap_or(Cow::Borrowed("")),
         );
     })
@@ -138,24 +162,31 @@ fn get_query_parameter<'a, 'b>(search_key: &'a str, query: &'b str) -> Option<Co
 
 pub fn open_spawn<T: Into<OsString>>(url: T) {
     let url = url.into();
-    spawn(move || {
-        open::that(url).ok();
-    });
+    spawn(|| open::that(url).ok());
 }
 
 #[derive(Debug)]
-pub enum RedeemResponseCodeError {
+pub enum OauthTokenError {
     ReqwestError(reqwest::Error),
-    ResponseNotUTF8(string::FromUtf8Error),
     ReadBodyError(reqwest::Error),
+    UnhandledResponse {
+        error: serde_json::Error,
+        body: Vec<u8>,
+    },
+}
+#[derive(serde::Deserialize, Debug)]
+struct Response {
+    access_token: String,
+    expires_in: u64,
+    refresh_token: String,
+    scope: String,
+    token_type: String,
 }
 
 // Do some parsing with serde here:
 // https://github.com/serde-rs/serde
 
-pub fn redeem_response_code(
-    code: &str,
-) -> impl Future<Item = String, Error = RedeemResponseCodeError> {
+pub fn oauth_token(code: &str) -> impl Future<Item = String, Error = OauthTokenError> {
     return reqwest::r#async::Client::new()
         .post("https://www.googleapis.com/oauth2/v4/token")
         .form(&[
@@ -166,31 +197,17 @@ pub fn redeem_response_code(
             ("grant_type", "authorization_code"),
         ])
         .send()
-        .map_err(RedeemResponseCodeError::ReqwestError)
+        .map_err(OauthTokenError::ReqwestError)
         .and_then(|response| {
-            println!("Status:\n{:?}\n\n", response.status());
-            println!("Headers:\n{:?}\n\n", response.headers());
-
             return response
                 .into_body()
                 .collect()
-                .map_err(RedeemResponseCodeError::ReadBodyError);
+                .map_err(OauthTokenError::ReadBodyError);
         })
         .and_then(|body| {
-            let body = String::from_utf8(body.into_iter().flatten().collect())
-                .map_err(RedeemResponseCodeError::ResponseNotUTF8)?;
-
-            println!("Body:\n{}\n\n", body);
-            return Ok(String::new());
+            let body: Vec<_> = body.into_iter().flatten().collect();
+            return serde_json::from_slice::<Response>(&body)
+                .map(|x| x.refresh_token)
+                .map_err(|error| OauthTokenError::UnhandledResponse { error, body });
         });
 }
-
-// POST /oauth2/v4/token HTTP/1.1
-// Host: www.googleapis.com
-// Content-Type: application/x-www-form-urlencoded
-
-// code=4/P7q7W91a-oMsCeLvIaQm6bTrgtp7&
-// client_id=your_client_id&
-// client_secret=your_client_secret&
-// redirect_uri=https://oauth2.example.com/code&
-// grant_type=authorization_code
