@@ -1,95 +1,183 @@
 use crate::open;
-
-use futures::{sync::oneshot::channel, Canceled, Future};
+use futures::Stream;
+use futures::{sync::oneshot::channel, Future};
+use hyper;
 use hyper::service::service_fn_ok;
-use hyper::{Body, Request, Response, Server};
-use percent_encoding::percent_encode;
-
-use std::io;
+use percent_encoding;
+use reqwest;
+use serde;
+use std::borrow::Cow;
+use std::cell::RefCell;
+use std::ffi::OsString;
+use std::rc::Rc;
+use std::thread::spawn;
 use tokio::runtime::current_thread;
-#[derive(Debug)]
-enum OpenAuthenticationURLError {
-    NonZeroExitCode,
-    IOError(io::Error),
-}
-
-const SCOPE: &str = "https://www.googleapis.com/auth/photoslibrary.readonly";
-const CLIENT_ID: &str = "529339861110-tppfskj6n90kk71ic9tqetm3l7471p6q.apps.googleusercontent.com";
-
-fn get_oauth_url(port: u16) -> String {
-    let redirect_uri: String = format!("http://127.0.0.1:{}/", port);
-
-    return format!("https://accounts.google.com/o/oauth2/v2/auth?redirect_uri={}&prompt=consent&response_type=code&client_id={}&scope={}&access_type=offline", redirect_uri, CLIENT_ID, SCOPE);
-}
-
-// const
-
-fn open_authentication_url(port: u16) -> Result<(), OpenAuthenticationURLError> {
-    let status = open::that(get_oauth_url(port)).map_err(OpenAuthenticationURLError::IOError)?;
-    match status.success() {
-        true => Ok(()),
-        false => Err(OpenAuthenticationURLError::NonZeroExitCode),
-    }
-}
-
-fn hello_world(_req: Request<Body>) -> Response<Body> {
-    Response::new(Body::from("Hello, World!"))
-}
 
 #[derive(Debug)]
-enum AuthenticationServerError {
-    RuntimeCancelled(Canceled),
+pub enum OauthError {
+    OauthAuthError(OauthAuthError),
+    OauthTokenError(OauthTokenError),
 }
 
-fn get_authentication_response(port: u16) -> Result<u64, AuthenticationServerError> {
-    let addr = ([127, 0, 0, 1], port).into();
-    let (result_sender, result_receiver) = channel::<u64>();
+pub fn oauth() -> Result<String, OauthError> {
+    oauth_start_browser();
+    let auth_code_future = oauth_auth().map_err(OauthError::OauthAuthError);
+
+    let refresh_token_future =
+        auth_code_future.and_then(|code| oauth_token(&code).map_err(OauthError::OauthTokenError));
+
+    let response_code = current_thread::Runtime::new()
+        .unwrap()
+        .block_on(refresh_token_future)?;
+
+    return Ok(response_code);
+}
+
+const CLIENT_ID: &'static str =
+    "529339861110-lnubi506ma1cj16dtfl0sltdrepp0tmm.apps.googleusercontent.com";
+const CLIENT_SECRET: &'static str = "pvykCj4vs1-JVVPazC-F8xht";
+const ENDPOINT: &'static str = "https://accounts.google.com/o/oauth2/v2/auth";
+const SCOPE: &'static str = "https://www.googleapis.com/auth/photoslibrary.appendonly";
+const REDIRECT_URI: &'static str = "http://localhost:3000/";
+
+fn oauth_start_browser() -> () {
+    open_spawn(format!(
+        "{:}?response_type=code&client_id={:}&redirect_uri={:}&scope={:}",
+        ENDPOINT,
+        percent_encoding::utf8_percent_encode(CLIENT_ID, percent_encoding::NON_ALPHANUMERIC),
+        percent_encoding::utf8_percent_encode(REDIRECT_URI, percent_encoding::NON_ALPHANUMERIC),
+        percent_encoding::utf8_percent_encode(SCOPE, percent_encoding::NON_ALPHANUMERIC),
+    ));
+}
+
+fn parse_oauth_return(
+    req: hyper::Request<hyper::Body>,
+) -> (hyper::Response<hyper::Body>, Option<String>) {
+    let code = req
+        .uri()
+        .query()
+        .and_then(|q| get_query_parameter("code", q));
+    (
+        hyper::Response::new(hyper::Body::from(
+            "sd-photo-uploader is now authenticated. You can close this page now.",
+        )),
+        code.map(|s| s.into_owned()),
+    )
+}
+
+#[derive(Debug)]
+pub enum OauthAuthError {
+    AuthResponseServer(hyper::Error),
+    ResultCanceled(futures::Canceled),
+}
+
+fn oauth_auth() -> impl Future<Item = String, Error = OauthAuthError> {
+    let addr = ([127, 0, 0, 1], 3000).into();
+    let (result_sender, result_receiver) = channel();
     let result_sender = Rc::new(RefCell::new(Some(result_sender)));
     let make_service = move || {
         let result_sender = Rc::clone(&result_sender);
         service_fn_ok(move |r| {
-            result_sender
-                .borrow_mut()
-                .take()
-                .and_then(|r| r.send(64).ok());
-            hello_world(r)
+            let (response, code) = parse_oauth_return(r);
+            if let Some(code) = code {
+                result_sender
+                    .borrow_mut()
+                    .take()
+                    .and_then(|r| r.send(code).ok());
+            };
+            response
         })
     };
 
-    let (shutdown_sender, shutdown_receiver) = channel::<()>();
-    let result_receiver = result_receiver.map(|x| {
+    let (shutdown_sender, shutdown_receiver) = channel();
+    let result_receiver = result_receiver.map(|code| {
         let _ = shutdown_sender.send(());
-        return x;
+        code
     });
 
     let exec = current_thread::TaskExecutor::current();
-    let server = Server::bind(&addr)
+
+    let server = hyper::Server::bind(&addr)
         .executor(exec)
         .serve(make_service)
         .with_graceful_shutdown(shutdown_receiver)
-        .map_err(|e| eprintln!("server error: {}", e));
-    println!("Running server");
+        .map_err(OauthAuthError::AuthResponseServer);
 
-    return current_thread::Runtime::new()
-        .unwrap()
-        .spawn(server)
-        .block_on(result_receiver)
-        .map_err(AuthenticationServerError::RuntimeCancelled);
+    return server
+        .join(result_receiver.map_err(OauthAuthError::ResultCanceled))
+        .map(|(_, m)| m);
+    ;
+}
+
+fn parse_query_string<'a>(query: &'a str) -> impl Iterator<Item = (Cow<'a, str>, Cow<'a, str>)> {
+    query.split('&').map(|a| {
+        let mut pair = a.splitn(2, '=');
+        return (
+            percent_encoding::percent_decode(pair.next().unwrap().as_ref())
+                .decode_utf8()
+                .unwrap(),
+            pair.next()
+                .map(|s| {
+                    percent_encoding::percent_decode(s.as_ref())
+                        .decode_utf8()
+                        .unwrap()
+                })
+                .unwrap_or(Cow::Borrowed("")),
+        );
+    })
+}
+
+fn get_query_parameter<'a, 'b>(search_key: &'a str, query: &'b str) -> Option<Cow<'b, str>> {
+    parse_query_string(query)
+        .find(|(key, _)| key == search_key)
+        .map(|(_, value)| value)
+}
+
+pub fn open_spawn<T: Into<OsString>>(url: T) {
+    let url = url.into();
+    spawn(|| open::that(url).ok());
 }
 
 #[derive(Debug)]
-enum AuthenticationError {
-    OpenAuthenticationURLError(OpenAuthenticationURLError),
-    AuthenticationServerError(AuthenticationServerError),
+pub enum OauthTokenError {
+    ReqwestError(reqwest::Error),
+    ReadBodyError(reqwest::Error),
+    UnhandledResponse {
+        error: serde_json::Error,
+        body: Vec<u8>,
+    },
+}
+#[derive(serde::Deserialize, Debug)]
+struct Response {
+    access_token: String,
+    expires_in: u64,
+    refresh_token: String,
+    scope: String,
+    token_type: String,
 }
 
-fn authenticate() -> Result<u64, AuthenticationError> {
-    open_authentication_url(4000).map_err(AuthenticationError::OpenAuthenticationURLError)?;
-    let result = get_authentication_response(4000)
-        .map_err(AuthenticationError::AuthenticationServerError)?;
-    return Ok(result);
-}
-
-pub fn main() {
-    println!("{:?}", authenticate());
+pub fn oauth_token(code: &str) -> impl Future<Item = String, Error = OauthTokenError> {
+    return reqwest::r#async::Client::new()
+        .post("https://www.googleapis.com/oauth2/v4/token")
+        .form(&[
+            ("code", code),
+            ("client_id", CLIENT_ID),
+            ("client_secret", CLIENT_SECRET),
+            ("redirect_uri", REDIRECT_URI),
+            ("grant_type", "authorization_code"),
+        ])
+        .send()
+        .map_err(OauthTokenError::ReqwestError)
+        .and_then(|response| {
+            return response
+                .into_body()
+                .collect()
+                .map_err(OauthTokenError::ReadBodyError);
+        })
+        .and_then(|body| {
+            let body: Vec<_> = body.into_iter().flatten().collect();
+            return serde_json::from_slice::<Response>(&body)
+                .map(|x| x.refresh_token)
+                .map_err(|error| OauthTokenError::UnhandledResponse { error, body });
+        });
 }

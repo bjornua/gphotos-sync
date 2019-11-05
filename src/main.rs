@@ -33,6 +33,8 @@ use clap::{App, AppSettings};
 
 mod commands;
 mod iterdir;
+mod gphotos;
+mod config;
 
 use std::alloc::System;
 
