@@ -32,12 +32,14 @@ extern crate url;
 use clap::{App, AppSettings};
 
 mod commands;
-mod iterdir;
-mod gphotos;
 mod config;
+mod gphotos;
+mod iterdir;
 
 use std::alloc::System;
 
+// Don't use jemalloc as allocator. We optimize for binary size because
+// this program doesn't do a lot of allocations
 #[global_allocator]
 static GLOBAL: System = System;
 

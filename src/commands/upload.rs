@@ -1,3 +1,4 @@
+use crate::config;
 use clap::{App, Arg, ArgMatches, SubCommand};
 
 pub fn get_subcommand() -> App<'static, 'static> {
@@ -9,19 +10,29 @@ pub fn get_subcommand() -> App<'static, 'static> {
                 .required(true)
                 .multiple(false),
         )
-        .arg(
-            Arg::with_name("EXTENSION")
-                .index(2)
-                .required(true)
-                .multiple(true),
-        )
 }
 
-pub fn main(matches: &ArgMatches) {
-    let directory = matches.value_of_os("DIRECTORY").unwrap().to_os_string();
-    let extensions = matches.values_of_os("EXTENSION").unwrap();
+const EXTENSIONS: &'static [&'static str] = &["jpg", "JPG", "png", "PNG"];
 
-    let files = crate::iterdir::findfiles(directory, extensions)
+pub fn main(matches: &ArgMatches) {
+    let config = match config::get_or_create("./sd-card-uploader.json") {
+        Ok(config) => config,
+        Err(e) => {
+            println!("Configuration file error: {:?}", e);
+            return;
+        }
+    };
+    let refresh_token = match config.refresh_token {
+        Some(t) => t,
+        None => {
+            println!("Refresh token not found");
+            return;
+        }
+    };
+
+    let directory = matches.value_of_os("DIRECTORY").unwrap().to_os_string();
+
+    let files = crate::iterdir::findfiles(directory, EXTENSIONS)
         .filter_map(Result::ok)
         .map(|m| m.dir_entry.path());
     println!("{:#?}", files.collect::<Vec<_>>())

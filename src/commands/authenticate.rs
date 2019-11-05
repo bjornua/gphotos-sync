@@ -7,17 +7,19 @@ pub fn get_subcommand() -> App<'static, 'static> {
 }
 
 pub fn main(_matches: &ArgMatches) {
-    let config = match config::get_or_create("./config.json") {
+    let config = match config::get_or_create("./sd-card-uploader.json") {
         Ok(config) => config,
         Err(e) => {
             println!("Configuration file error: {:?}", e);
-            return
+            return;
         }
     };
     if config.refresh_token.is_some() {
         println!("Already authenticated.");
-        return
+        return;
     }
+
+    println!("Opening browser. Follow the instructions to authenticate sd-card-uploader.");
     let refresh_token = match crate::gphotos::oauth() {
         Ok(refresh_token) => refresh_token,
         Err(error) => {
@@ -25,15 +27,17 @@ pub fn main(_matches: &ArgMatches) {
             return;
         }
     };
+
     let new_config = config::Config {
         refresh_token: Some(refresh_token),
         ..config
     };
-    match config::save("./config.json", &new_config) {
+    match config::save("./sd-card-uploader.json", &new_config) {
         Ok(()) => (),
         Err(error) => {
             println!("{:?}", error);
             return;
         }
     };
+    println!("Done authenticating. You can now run `sd-card-uploader upload`");
 }

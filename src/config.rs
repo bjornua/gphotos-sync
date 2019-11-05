@@ -1,4 +1,5 @@
 #[derive(serde::Serialize, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Config {
     pub refresh_token: Option<String>,
     pub uploaded_files: Vec<String>,
