@@ -1,6 +1,4 @@
 use crate::open;
-use futures::Stream;
-use futures::{sync::oneshot::channel, Future};
 use hyper;
 use hyper::service::service_fn_ok;
 use percent_encoding;
@@ -10,27 +8,22 @@ use std::borrow::Cow;
 use std::cell::RefCell;
 use std::ffi::OsString;
 use std::rc::Rc;
+use std::sync::mpsc::channel;
 use std::thread::spawn;
 use tokio::runtime::current_thread;
-
 #[derive(Debug)]
 pub enum OauthError {
     OauthAuthError(OauthAuthError),
     OauthTokenError(OauthTokenError),
 }
 
-pub fn oauth() -> Result<String, OauthError> {
+pub async fn oauth() -> Result<String, OauthError> {
     oauth_start_browser();
-    let auth_code_future = oauth_auth().map_err(OauthError::OauthAuthError);
-
-    let refresh_token_future =
-        auth_code_future.and_then(|code| oauth_token(&code).map_err(OauthError::OauthTokenError));
-
-    let response_code = current_thread::Runtime::new()
-        .unwrap()
-        .block_on(refresh_token_future)?;
-
-    return Ok(response_code);
+    let auth_code = oauth_auth().await.map_err(OauthError::OauthAuthError)?;
+    let refresh_token = oauth_token(&auth_code)
+        .await
+        .map_err(OauthError::OauthTokenError)?;
+    return Ok(refresh_token);
 }
 
 const CLIENT_ID: &'static str =
@@ -68,10 +61,10 @@ fn parse_oauth_return(
 #[derive(Debug)]
 pub enum OauthAuthError {
     AuthResponseServer(hyper::Error),
-    ResultCanceled(futures::Canceled),
+    ResultCanceled,
 }
 
-fn oauth_auth() -> impl Future<Item = String, Error = OauthAuthError> {
+async fn oauth_auth() -> Result<String, OauthAuthError> {
     let addr = ([127, 0, 0, 1], 3000).into();
     let (result_sender, result_receiver) = channel();
     let result_sender = Rc::new(RefCell::new(Some(result_sender)));
@@ -106,7 +99,6 @@ fn oauth_auth() -> impl Future<Item = String, Error = OauthAuthError> {
     return server
         .join(result_receiver.map_err(OauthAuthError::ResultCanceled))
         .map(|(_, m)| m);
-    ;
 }
 
 fn parse_query_string<'a>(query: &'a str) -> impl Iterator<Item = (Cow<'a, str>, Cow<'a, str>)> {
@@ -156,8 +148,8 @@ struct Response {
     token_type: String,
 }
 
-pub fn oauth_token(code: &str) -> impl Future<Item = String, Error = OauthTokenError> {
-    return reqwest::r#async::Client::new()
+pub async fn oauth_token(code: &str) -> Result<String, OauthTokenError> {
+    let response = reqwest::Client::new()
         .post("https://www.googleapis.com/oauth2/v4/token")
         .form(&[
             ("code", code),
@@ -167,17 +159,12 @@ pub fn oauth_token(code: &str) -> impl Future<Item = String, Error = OauthTokenE
             ("grant_type", "authorization_code"),
         ])
         .send()
-        .map_err(OauthTokenError::ReqwestError)
-        .and_then(|response| {
-            return response
-                .into_body()
-                .collect()
-                .map_err(OauthTokenError::ReadBodyError);
-        })
-        .and_then(|body| {
-            let body: Vec<_> = body.into_iter().flatten().collect();
-            return serde_json::from_slice::<Response>(&body)
-                .map(|x| x.refresh_token)
-                .map_err(|error| OauthTokenError::UnhandledResponse { error, body });
-        });
+        .await
+        .map_err(OauthTokenError::ReqwestError)?;
+
+    let payload = response
+        .json::<Response>()
+        .await
+        .map_err(OauthTokenError::ReadBodyError)?;
+    return Ok(payload.refresh_token);
 }

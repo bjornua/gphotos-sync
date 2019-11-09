@@ -6,7 +6,7 @@ pub fn get_subcommand() -> App<'static, 'static> {
     SubCommand::with_name("authenticate").about("Authenticate with Google")
 }
 
-pub fn main(_matches: &ArgMatches) {
+pub async fn main(_matches: &ArgMatches<'_>) {
     let config = match config::get_or_create("./sd-card-uploader.json") {
         Ok(config) => config,
         Err(e) => {
@@ -20,7 +20,7 @@ pub fn main(_matches: &ArgMatches) {
     }
 
     println!("Opening browser. Follow the instructions to authenticate sd-card-uploader.");
-    let refresh_token = match crate::gphotos::oauth() {
+    let refresh_token = match crate::gphotos::oauth().await {
         Ok(refresh_token) => refresh_token,
         Err(error) => {
             println!("{:?}", error);

@@ -1,40 +1,18 @@
-/*
-Goal:
-    Empty pictures from sd-card and upload to google images without user interaction
-
-Features:
-    Generate list of file to process
-    Detect images
-    Detect sd-card is inserted
-    Delete successfuly uploaded files
-    Send notification (email, IM, whatever) when certain events happens
-        * Transfer started (label, count, size, eta)
-        * Transfer completed (suceeded, failed, size, elapsed, speed, thumbs, errors)
-        * SD-Card Inserted
-        * Failure
-    * Multiple destinations
-        * Google
-        * FTP / SFTP / SCP
-
-    Checksums?
-
-    Duplicate detection (skip alredy uploaded files)
-    Read configuration file from mounted file-system
-
-*/
-
+extern crate arrayvec;
 extern crate clap;
-extern crate futures;
+extern crate fasthash;
+extern crate hex;
 extern crate hyper;
 extern crate open;
+extern crate sha2;
 extern crate url;
-
 use clap::{App, AppSettings};
 
 mod commands;
 mod config;
 mod gphotos;
 mod iterdir;
+mod utils;
 
 use std::alloc::System;
 
@@ -53,9 +31,15 @@ fn main() -> () {
         .subcommand(commands::upload::get_subcommand());
     let matches = app.get_matches();
 
-    match matches.subcommand() {
-        ("upload", Some(args)) => commands::upload::main(args),
-        ("authenticate", Some(args)) => commands::authenticate::main(args),
-        (_, _) => unimplemented!(),
-    }
+    let command_future = async {
+        match matches.subcommand() {
+            ("upload", Some(args)) => commands::upload::main(args).await,
+            ("authenticate", Some(args)) => commands::authenticate::main(args).await,
+            (_, _) => unimplemented!(),
+        }
+    };
+
+    let response_code = tokio::runtime::current_thread::Runtime::new()
+        .unwrap()
+        .block_on(command_future);
 }
