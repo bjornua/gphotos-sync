@@ -1,6 +1,7 @@
 use crate::open;
 use hyper;
-use hyper::service::service_fn_ok;
+
+use futures::channel::oneshot;
 use percent_encoding;
 use reqwest;
 use serde;
@@ -8,9 +9,9 @@ use std::borrow::Cow;
 use std::cell::RefCell;
 use std::ffi::OsString;
 use std::rc::Rc;
-use std::sync::mpsc::channel;
 use std::thread::spawn;
 use tokio::runtime::current_thread;
+
 #[derive(Debug)]
 pub enum OauthError {
     OauthAuthError(OauthAuthError),
@@ -66,39 +67,41 @@ pub enum OauthAuthError {
 
 async fn oauth_auth() -> Result<String, OauthAuthError> {
     let addr = ([127, 0, 0, 1], 3000).into();
-    let (result_sender, result_receiver) = channel();
+    let (result_sender, result_receiver) = oneshot::channel::<String>();
     let result_sender = Rc::new(RefCell::new(Some(result_sender)));
-    let make_service = move || {
-        let result_sender = Rc::clone(&result_sender);
-        service_fn_ok(move |r| {
-            let (response, code) = parse_oauth_return(r);
-            if let Some(code) = code {
-                result_sender
-                    .borrow_mut()
-                    .take()
-                    .and_then(|r| r.send(code).ok());
-            };
-            response
-        })
-    };
-
-    let (shutdown_sender, shutdown_receiver) = channel();
-    let result_receiver = result_receiver.map(|code| {
-        let _ = shutdown_sender.send(());
-        code
+    let make_service = hyper::service::make_service_fn(move |_| {
+        async move {
+            let result_sender = Rc::clone(&result_sender);
+            return Ok::<_, hyper::Error>(hyper::service::service_fn(move |r| {
+                async move {
+                    let (response, code) = parse_oauth_return(r);
+                    if let Some(code) = code {
+                        result_sender
+                            .borrow_mut()
+                            .take()
+                            .and_then(|r| r.send(code).ok());
+                    };
+                    return Ok::<_, hyper::Error>(response);
+                }
+            }));
+        }
     });
 
-    let exec = current_thread::TaskExecutor::current();
+    let (shutdown_sender, shutdown_receiver) = oneshot::channel::<()>();
+    let result_receiver = async {
+        let code = result_receiver.await.unwrap();
+        let _ = shutdown_sender.send(());
+        code
+    };
 
+    let exec = current_thread::TaskExecutor::current();
     let server = hyper::Server::bind(&addr)
         .executor(exec)
         .serve(make_service)
-        .with_graceful_shutdown(shutdown_receiver)
-        .map_err(OauthAuthError::AuthResponseServer);
+        .with_graceful_shutdown(async { shutdown_receiver.await.unwrap() });
 
-    return server
-        .join(result_receiver.map_err(OauthAuthError::ResultCanceled))
-        .map(|(_, m)| m);
+    server.await.map_err(OauthAuthError::AuthResponseServer)?;
+    return Ok(result_receiver.await);
 }
 
 fn parse_query_string<'a>(query: &'a str) -> impl Iterator<Item = (Cow<'a, str>, Cow<'a, str>)> {
