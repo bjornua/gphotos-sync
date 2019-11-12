@@ -1,17 +1,14 @@
-use crate::open;
 use hyper;
+use open;
 
 use futures::channel::oneshot;
 use percent_encoding;
 use reqwest;
 use serde;
 use std::borrow::Cow;
-use std::cell::RefCell;
 use std::ffi::OsString;
-use std::rc::Rc;
+use std::sync::{Arc, Mutex};
 use std::thread::spawn;
-use tokio::runtime::current_thread;
-
 #[derive(Debug)]
 pub enum OauthError {
     OauthAuthError(OauthAuthError),
@@ -62,22 +59,23 @@ fn parse_oauth_return(
 #[derive(Debug)]
 pub enum OauthAuthError {
     AuthResponseServer(hyper::Error),
-    ResultCanceled,
 }
 
 async fn oauth_auth() -> Result<String, OauthAuthError> {
     let addr = ([127, 0, 0, 1], 3000).into();
     let (result_sender, result_receiver) = oneshot::channel::<String>();
-    let result_sender = Rc::new(RefCell::new(Some(result_sender)));
+    let result_sender = Arc::new(Mutex::new(Some(result_sender)));
     let make_service = hyper::service::make_service_fn(move |_| {
-        async move {
-            let result_sender = Rc::clone(&result_sender);
+        let result_sender = Arc::clone(&result_sender);
+        async {
             return Ok::<_, hyper::Error>(hyper::service::service_fn(move |r| {
+                let result_sender = Arc::clone(&result_sender);
                 async move {
                     let (response, code) = parse_oauth_return(r);
                     if let Some(code) = code {
                         result_sender
-                            .borrow_mut()
+                            .lock()
+                            .unwrap()
                             .take()
                             .and_then(|r| r.send(code).ok());
                     };
@@ -87,21 +85,17 @@ async fn oauth_auth() -> Result<String, OauthAuthError> {
         }
     });
 
-    let (shutdown_sender, shutdown_receiver) = oneshot::channel::<()>();
-    let result_receiver = async {
-        let code = result_receiver.await.unwrap();
-        let _ = shutdown_sender.send(());
-        code
-    };
+    let (shutdown_sender, shutdown_receiver) = oneshot::channel::<String>();
 
-    let exec = current_thread::TaskExecutor::current();
     let server = hyper::Server::bind(&addr)
-        .executor(exec)
         .serve(make_service)
-        .with_graceful_shutdown(async { shutdown_receiver.await.unwrap() });
+        .with_graceful_shutdown(async {
+            let code = result_receiver.await.unwrap();
+            shutdown_sender.send(code).unwrap();
+        });
 
     server.await.map_err(OauthAuthError::AuthResponseServer)?;
-    return Ok(result_receiver.await);
+    return Ok(shutdown_receiver.await.unwrap());
 }
 
 fn parse_query_string<'a>(query: &'a str) -> impl Iterator<Item = (Cow<'a, str>, Cow<'a, str>)> {
@@ -137,10 +131,6 @@ pub fn open_spawn<T: Into<OsString>>(url: T) {
 pub enum OauthTokenError {
     ReqwestError(reqwest::Error),
     ReadBodyError(reqwest::Error),
-    UnhandledResponse {
-        error: serde_json::Error,
-        body: Vec<u8>,
-    },
 }
 #[derive(serde::Deserialize, Debug)]
 struct Response {

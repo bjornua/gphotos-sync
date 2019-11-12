@@ -1,12 +1,5 @@
 #![warn(unused_extern_crates)]
 
-extern crate arrayvec;
-extern crate clap;
-extern crate fasthash;
-extern crate hex;
-extern crate hyper;
-extern crate open;
-extern crate url;
 use clap::{App, AppSettings};
 
 mod commands;

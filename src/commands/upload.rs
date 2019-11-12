@@ -1,5 +1,7 @@
 use crate::config;
 use clap::{App, Arg, ArgMatches, SubCommand};
+use fasthash::{metro::crc::Hasher64_1, FastHasher};
+use std::hash::Hasher;
 use std::io::Read;
 
 pub fn get_subcommand() -> App<'static, 'static> {
@@ -20,21 +22,24 @@ enum ReadFileError {
     OpenError(std::io::Error),
     ReadError(std::io::Error),
 }
-fn read_file<P: AsRef<std::path::Path>>(path: P) -> Result<Vec<u8>, ReadFileError> {
-    let mut content = Vec::<u8>::new();
-    std::fs::File::open(path.as_ref())
-        .map_err(ReadFileError::OpenError)?
-        .read_to_end(&mut content)
-        .map_err(ReadFileError::ReadError)?;
-    return Ok(content);
-}
 
-fn read_and_hash_file<P: AsRef<std::path::Path>>(
+fn hash_file<P: AsRef<std::path::Path>>(
     path: P,
-) -> Result<(Vec<u8>, config::HashDigest), ReadFileError> {
-    let content = crate::utils::slowlog(50, "read file", || read_file(path))?;
-    let hash = crate::utils::slowlog(50, "hashed file", || config::sha224str(&content));
-    Ok((content, hash))
+) -> Result<(usize, config::HashDigest), ReadFileError> {
+    let mut file = std::fs::File::open(path.as_ref()).map_err(ReadFileError::OpenError)?;
+    let mut buffer = [0; 65536];
+    // 128KB buffer
+    // let mut buffer = [0; 131_072];
+    let mut read_bytes_total = 0;
+    let mut hasher = Hasher64_1::new();
+    loop {
+        let read_bytes = file.read(&mut buffer).map_err(ReadFileError::ReadError)?;
+        read_bytes_total += read_bytes;
+        if read_bytes == 0 {
+            return Ok((read_bytes_total, hasher.finish()));
+        };
+        hasher.write(&buffer[0..read_bytes]);
+    }
 }
 
 pub async fn main(matches: &ArgMatches<'_>) {
@@ -58,8 +63,12 @@ pub async fn main(matches: &ArgMatches<'_>) {
         .filter_map(Result::ok)
         .map(|m| m.dir_entry.path());
     // Change this to hash as we read the file
+    let mut files_skipped = 0;
+    let mut files_skipped_size = 0;
+    let mut files_skipped_duration = std::time::Duration::new(0, 0);
     for f in files {
-        let (_contents, hash) = match read_and_hash_file(&f) {
+        let time_begin = std::time::Instant::now();
+        let (hash_file_size, hash) = match hash_file(&f) {
             Ok(r) => r,
             Err(err) => {
                 println!(
@@ -70,12 +79,21 @@ pub async fn main(matches: &ArgMatches<'_>) {
             }
         };
         if cfg.uploaded_files.contains(&hash) {
+            files_skipped_duration += time_begin.elapsed();
+            files_skipped_size += hash_file_size;
+            files_skipped += 1;
             continue;
         }
         println!("Uploading file: {:?}", f);
 
         cfg.uploaded_files.insert(hash);
     }
+    println!(
+        "Skipped {:} files. Skipped total size: {:.2} MB. Speed: {:.2} MB/s",
+        files_skipped,
+        (files_skipped_size as f64) / 1_000_000f64,
+        (files_skipped_size as f64 / 1_000_000f64) / files_skipped_duration.as_secs_f64()
+    );
     match config::save("./sd-card-uploader.json", &cfg) {
         Ok(()) => (),
         Err(e) => {
