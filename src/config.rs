@@ -1,10 +1,9 @@
-pub type HashDigest = u64;
-
+use crate::hash;
 #[derive(serde::Serialize, serde::Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Config {
     pub refresh_token: Option<String>,
-    pub uploaded_files: std::collections::BTreeSet<HashDigest>,
+    pub uploaded_files: std::collections::BTreeSet<hash::HashDigest>,
     // pub uploaded_files: Vec<HashDigest>,
 }
 

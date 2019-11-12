@@ -5,6 +5,7 @@ use clap::{App, AppSettings};
 mod commands;
 mod config;
 mod gphotos;
+mod hash;
 mod iterdir;
 mod utils;
 

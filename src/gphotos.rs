@@ -132,13 +132,9 @@ pub enum OauthTokenError {
     ReqwestError(reqwest::Error),
     ReadBodyError(reqwest::Error),
 }
-#[derive(serde::Deserialize, Debug)]
+#[derive(serde::Deserialize)]
 struct Response {
-    access_token: String,
-    expires_in: u64,
     refresh_token: String,
-    scope: String,
-    token_type: String,
 }
 
 pub async fn oauth_token(code: &str) -> Result<String, OauthTokenError> {
@@ -160,4 +156,17 @@ pub async fn oauth_token(code: &str) -> Result<String, OauthTokenError> {
         .await
         .map_err(OauthTokenError::ReadBodyError)?;
     return Ok(payload.refresh_token);
+}
+
+#[derive(Debug)]
+pub enum UploadFailure {
+    Failure,
+}
+pub async fn upload_file(
+    refresh_token: &str,
+    access_token: Option<String>,
+    path: &std::path::Path,
+) -> (Option<String>, Result<(), UploadFailure>) {
+    println!("Uploading: {:?}", path);
+    return (access_token, Ok(()));
 }
