@@ -1,5 +1,5 @@
 [package]
-name = "sd-photo-uploader"
+name = "gphotos-sync"
 version = "0.1.0"
 authors = ["Bjørn Arnholtz <bjorn.arnholtz@gmail.com>"]
 edition = "2018"

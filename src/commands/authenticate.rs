@@ -7,7 +7,7 @@ pub fn get_subcommand() -> App<'static, 'static> {
 }
 
 pub async fn main(_matches: &ArgMatches<'_>) {
-    let config = match config::get_or_create("./sd-card-uploader.json") {
+    let config = match config::get_or_create("./gphotos-sync.json") {
         Ok(config) => config,
         Err(e) => {
             println!("Configuration file error: {:?}", e);
@@ -19,7 +19,7 @@ pub async fn main(_matches: &ArgMatches<'_>) {
         return;
     }
 
-    println!("Opening browser. Follow the instructions to authenticate sd-card-uploader.");
+    println!("Opening browser. Follow the instructions to authenticate gphotos-sync.");
     let refresh_token = match crate::gphotos::oauth().await {
         Ok(refresh_token) => refresh_token,
         Err(error) => {
@@ -32,12 +32,12 @@ pub async fn main(_matches: &ArgMatches<'_>) {
         refresh_token: Some(refresh_token),
         ..config
     };
-    match config::save("./sd-card-uploader.json", &new_config) {
+    match config::save("./gphotos-sync.json", &new_config) {
         Ok(()) => (),
         Err(error) => {
             println!("{:?}", error);
             return;
         }
     };
-    println!("Done authenticating. You can now run `sd-card-uploader upload`");
+    println!("Done authenticating. You can now run `gphotos-sync upload`");
 }
