@@ -74,7 +74,6 @@ impl Iterator for RecursiveIterDir {
             match dir_entry.file_type() {
                 Ok(file_type) if file_type.is_dir() => {
                     self.directories.push(dir_entry.path().into_os_string());
-                    // println!("{}", self.directories.len());
                     continue;
                 }
                 Ok(file_type) if file_type.is_file() => return Some(Ok(dir_entry)),

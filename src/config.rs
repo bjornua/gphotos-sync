@@ -1,4 +1,5 @@
 use crate::hash;
+
 #[derive(serde::Serialize, serde::Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Config {
@@ -10,7 +11,7 @@ pub struct Config {
 #[derive(Debug)]
 pub enum GetError {
     OpenError(std::io::Error),
-    SerdeError(serde_json::Error),
+    SerdeError(serde_cbor::Error),
     NotFound,
 }
 
@@ -20,18 +21,18 @@ fn get<P: AsRef<std::path::Path>>(path: P) -> Result<Config, GetError> {
         std::io::ErrorKind::NotFound => GetError::NotFound,
         _ => GetError::OpenError(e),
     })?;
-    serde_json::from_reader(file).map_err(GetError::SerdeError)
+    serde_cbor::from_reader(file).map_err(GetError::SerdeError)
 }
 
 #[derive(Debug)]
 pub enum SaveError {
     OpenFileError(std::io::Error),
-    SerdeError(serde_json::Error),
+    SerdeError(serde_cbor::Error),
 }
 
 pub fn save<P: AsRef<std::path::Path>>(path: P, config: &Config) -> Result<(), SaveError> {
     let file = std::fs::File::create(path).map_err(SaveError::OpenFileError)?;
-    serde_json::to_writer_pretty(file, config).map_err(SaveError::SerdeError)?;
+    serde_cbor::to_writer(file, config).map_err(SaveError::SerdeError)?;
     return Ok(());
 }
 fn create() -> Config {

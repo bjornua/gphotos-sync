@@ -159,14 +159,41 @@ pub async fn oauth_token(code: &str) -> Result<String, OauthTokenError> {
 }
 
 #[derive(Debug)]
-pub enum UploadFailure {
-    Failure,
+pub enum UploadError {
+    ReqwestError(reqwest::Error),
+    Duplicate,
 }
+pub struct UploadOk {
+    access_token: Option<String>,
+    upload_token: String,
+}
+
 pub async fn upload_file(
     refresh_token: &str,
     access_token: Option<String>,
     path: &std::path::Path,
-) -> (Option<String>, Result<(), UploadFailure>) {
+) -> Result<UploadOk, UploadError> {
+    let response = reqwest::Client::new()
+        .post("https://photoslibrary.googleapis.com/v1/uploads")
+        .header("Authorization", "Bearer oauth2-token")
+        .header("Content-type", "application/octet-stream")
+        .header("X-Goog-Upload-File-Name", "filename")
+        .header("X-Goog-Upload-Protocol", "raw")
+        .form(&[
+            ("code", code),
+            ("client_id", CLIENT_ID),
+            ("client_secret", CLIENT_SECRET),
+            ("redirect_uri", REDIRECT_URI),
+            ("grant_type", "authorization_code"),
+        ])
+        .send()
+        .await
+        .map_err(UploadError::ReqwestError);
+
     println!("Uploading: {:?}", path);
-    return (access_token, Ok(()));
+
+    return Ok(UploadOk {
+        access_token,
+        upload_token: String::new(),
+    });
 }

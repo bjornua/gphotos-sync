@@ -7,7 +7,7 @@ pub fn get_subcommand() -> App<'static, 'static> {
 }
 
 pub async fn main(_matches: &ArgMatches<'_>) {
-    let config = match config::get_or_create("./gphotos-sync.json") {
+    let config = match config::get_or_create("./gphotos-sync.cbor") {
         Ok(config) => config,
         Err(e) => {
             println!("Configuration file error: {:?}", e);
@@ -32,7 +32,7 @@ pub async fn main(_matches: &ArgMatches<'_>) {
         refresh_token: Some(refresh_token),
         ..config
     };
-    match config::save("./gphotos-sync.json", &new_config) {
+    match config::save("./gphotos-sync.cbor", &new_config) {
         Ok(()) => (),
         Err(error) => {
             println!("{:?}", error);

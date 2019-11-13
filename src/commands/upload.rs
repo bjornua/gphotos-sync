@@ -17,7 +17,7 @@ pub fn get_subcommand() -> App<'static, 'static> {
 const EXTENSIONS: &'static [&'static str] = &["jpg", "JPG", "png", "PNG"];
 
 pub async fn main(matches: &ArgMatches<'_>) {
-    let mut cfg = match config::get_or_create("./gphotos-sync.json") {
+    let mut cfg = match config::get_or_create("./gphotos-sync.cbor") {
         Ok(cfg) => cfg,
         Err(e) => {
             println!("Error reading configuration file: {:?}", e);
@@ -62,7 +62,7 @@ pub async fn main(matches: &ArgMatches<'_>) {
 
         cfg.uploaded_files.insert(hash);
         match gphotos::upload_file(refresh_token, access_token, &path).await {
-            (t, Ok(r)) => access_token = t,
+            (t, Ok(())) => access_token = t,
             (t, Err(err)) => {
                 println!(
                     "An error happened while uploading file: {:?}: {:?}",
@@ -80,7 +80,7 @@ pub async fn main(matches: &ArgMatches<'_>) {
         (files_skipped_size as f64 / 1_000_000f64) / files_skipped_duration.as_secs_f64()
     );
 
-    match config::save("./gphotos-sync.json", &cfg) {
+    match config::save("./gphotos-sync.cbor", &cfg) {
         Ok(()) => (),
         Err(e) => {
             println!("Error saving configuration file: {:?}", e);
