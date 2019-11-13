@@ -160,17 +160,28 @@ pub async fn oauth_token(code: &str) -> Result<String, OauthTokenError> {
 
 #[derive(Debug)]
 pub enum UploadError {
-    ReqwestError(reqwest::Error),
-    Duplicate,
-}
-pub struct UploadOk {
-    access_token: Option<String>,
-    upload_token: String,
+    ReqwestError {
+        access_token: String,
+        inner: reqwest::Error,
+    },
+    Unauthorized,
+    Duplicate {
+        access_token: String,
+    },
 }
 
+pub enum GetAccessTokenError {
+    ReqwestError(reqwest::Error),
+}
+
+pub async fn get_access_token(refresh_token: String) -> Result<String, GetAccessTokenError> {
+    unimplemented!()
+}
+
+pub struct UploadOk {access_token: String};
 pub async fn upload_file(
+    access_token: String,
     refresh_token: &str,
-    access_token: Option<String>,
     path: &std::path::Path,
 ) -> Result<UploadOk, UploadError> {
     let response = reqwest::Client::new()
