@@ -20,7 +20,7 @@ pub async fn main(_matches: &ArgMatches<'_>) {
     }
 
     println!("Opening browser. Follow the instructions to authenticate gphotos-sync.");
-    let refresh_token = match crate::gphotos::oauth().await {
+    let refresh_token = match crate::gauth::oauth().await {
         Ok(refresh_token) => refresh_token,
         Err(error) => {
             println!("{:?}", error);

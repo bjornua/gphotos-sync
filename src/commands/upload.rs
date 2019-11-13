@@ -31,7 +31,7 @@ pub async fn main(matches: &ArgMatches<'_>) {
             return;
         }
     };
-    let mut access_token: Option<String> = None;
+    let mut access_token: String;
     let directory = matches.value_of_os("DIRECTORY").unwrap().to_os_string();
 
     let files = crate::iterdir::findfiles(directory, EXTENSIONS)
@@ -61,17 +61,22 @@ pub async fn main(matches: &ArgMatches<'_>) {
         }
 
         cfg.uploaded_files.insert(hash);
-        match gphotos::upload_file(refresh_token, access_token, &path).await {
-            (t, Ok(())) => access_token = t,
-            (t, Err(err)) => {
+        let result = match gphotos::upload_file(access_token, refresh_token, &path).await {
+            Ok(gphotos::UploadOk {
+                access_token: a,
+                upload_token,
+            }) => {
+                access_token = a;
+                upload_token
+            }
+            Err(err) => {
                 println!(
                     "An error happened while uploading file: {:?}: {:?}",
                     path, err
                 );
-                access_token = t;
                 continue;
             }
-        }
+        };
     }
     println!(
         "Skipped {:} files. Skipped total size: {:.2} MB. Speed: {:.2} MB/s",
