@@ -1,23 +1,15 @@
 #[derive(Debug)]
 pub enum UploadFileError {
-    ReqwestError {
-        access_token: String,
-        inner: reqwest::Error,
-    },
-    GetAccessTokenError(crate::gauth::GetAccessTokenError),
-    Duplicate {
-        access_token: String,
-    },
+    ReqwestError { inner: reqwest::Error },
+    Duplicate,
 }
 
 pub struct UploadFileOk {
-    access_token: String,
     upload_token: String,
 }
 
 pub async fn upload_file(
-    access_token: String,
-    refresh_token: &str,
+    access_token: &str,
     path: &std::path::Path,
 ) -> Result<UploadFileOk, UploadFileError> {
     unimplemented!();
