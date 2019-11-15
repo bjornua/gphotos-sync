@@ -1,16 +1,16 @@
 #[derive(Debug)]
-pub enum UploadError {
+pub enum UploadFileError {
     ReqwestError {
         access_token: String,
         inner: reqwest::Error,
     },
-    Unauthorized,
+    GetAccessTokenError(crate::gauth::GetAccessTokenError),
     Duplicate {
         access_token: String,
     },
 }
 
-pub struct UploadOk {
+pub struct UploadFileOk {
     access_token: String,
     upload_token: String,
 }
@@ -19,7 +19,7 @@ pub async fn upload_file(
     access_token: String,
     refresh_token: &str,
     path: &std::path::Path,
-) -> Result<UploadOk, UploadError> {
+) -> Result<UploadFileOk, UploadFileError> {
     unimplemented!();
     // let response = reqwest::Client::new()
     //     .post("https://photoslibrary.googleapis.com/v1/uploads")

@@ -158,6 +158,7 @@ pub async fn oauth_token(code: &str) -> Result<String, OauthTokenError> {
     return Ok(payload.refresh_token);
 }
 
+#[derive(Debug)]
 pub enum GetAccessTokenError {
     ReqwestError(reqwest::Error),
 }
