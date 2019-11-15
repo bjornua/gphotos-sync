@@ -61,7 +61,7 @@ pub async fn main(matches: &ArgMatches<'_>) {
         }
 
         cfg.uploaded_files.insert(hash);
-        let result = match gphotos::upload_file(access_token, refresh_token, &path).await {
+        match gphotos::upload_file(access_token, &path).await {
             Ok(gphotos::UploadOk {
                 access_token: a,
                 upload_token,
