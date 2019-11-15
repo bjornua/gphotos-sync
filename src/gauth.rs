@@ -159,10 +159,27 @@ pub async fn oauth_token(code: &str) -> Result<String, OauthTokenError> {
 }
 
 #[derive(Debug)]
-pub enum GetAccessTokenError {
+pub enum RefreshCredentialsError {
     ReqwestError(reqwest::Error),
 }
 
-pub async fn get_access_token(refresh_token: String) -> Result<String, GetAccessTokenError> {
-    unimplemented!()
+pub struct Credentials {
+    refresh_token: String,
+    access_token: String,
+    expires: chrono::DateTime<chrono::Utc>,
+}
+
+pub async fn refresh_credentials(
+    credentials: Credentials,
+) -> Result<Credentials, RefreshCredentialsError> {
+    return Ok(credentials);
+}
+
+pub async fn refresh_credentials_if_needed(
+    credentials: Credentials,
+) -> Result<Credentials, RefreshCredentialsError> {
+    if credentials.expires > chrono::Utc::now() {
+        return refresh_credentials(credentials).await;
+    }
+    return Ok(credentials);
 }

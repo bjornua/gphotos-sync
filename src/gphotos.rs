@@ -1,6 +1,6 @@
 #[derive(Debug)]
 pub enum UploadFileError {
-    ReqwestError { inner: reqwest::Error },
+    ReqwestError(reqwest::Error),
     Duplicate,
 }
 
