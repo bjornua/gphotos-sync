@@ -24,14 +24,13 @@ pub async fn main(matches: &ArgMatches<'_>) {
             return;
         }
     };
-    let refresh_token = match &cfg.refresh_token {
-        Some(t) => t,
+    let credentials = match &cfg.credentials {
+        Some(c) => c.clone(),
         None => {
             println!("You are not authenticated. Please run `gphotos-sync authenticate`.");
             return;
         }
     };
-    let mut access_token: String;
     let directory = matches.value_of_os("DIRECTORY").unwrap().to_os_string();
 
     let files = crate::iterdir::findfiles(directory, EXTENSIONS)
@@ -61,14 +60,8 @@ pub async fn main(matches: &ArgMatches<'_>) {
         }
 
         cfg.uploaded_files.insert(hash);
-        match gphotos::upload_file(access_token, &path).await {
-            Ok(gphotos::UploadOk {
-                access_token: a,
-                upload_token,
-            }) => {
-                access_token = a;
-                upload_token
-            }
+        match gphotos::upload_file(&credentials.access_token, &path).await {
+            Ok(gphotos::UploadFileOk { upload_token }) => upload_token,
             Err(err) => {
                 println!(
                     "An error happened while uploading file: {:?}: {:?}",

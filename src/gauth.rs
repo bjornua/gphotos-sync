@@ -15,7 +15,7 @@ pub enum OauthError {
     OauthTokenError(OauthTokenError),
 }
 
-pub async fn oauth() -> Result<String, OauthError> {
+pub async fn oauth() -> Result<Credentials, OauthError> {
     oauth_start_browser();
     let auth_code = oauth_auth().await.map_err(OauthError::OauthAuthError)?;
     let refresh_token = oauth_token(&auth_code)
@@ -137,7 +137,7 @@ struct Response {
     refresh_token: String,
 }
 
-pub async fn oauth_token(code: &str) -> Result<String, OauthTokenError> {
+pub async fn oauth_token(code: &str) -> Result<Credentials, OauthTokenError> {
     let response = reqwest::Client::new()
         .post("https://www.googleapis.com/oauth2/v4/token")
         .form(&[
@@ -163,10 +163,11 @@ pub enum RefreshCredentialsError {
     ReqwestError(reqwest::Error),
 }
 
+#[derive(serde::Deserialize, serde::Serialize, Clone)]
 pub struct Credentials {
-    refresh_token: String,
-    access_token: String,
-    expires: chrono::DateTime<chrono::Utc>,
+    pub refresh_token: String,
+    pub access_token: String,
+    pub expires: chrono::DateTime<chrono::Utc>,
 }
 
 pub async fn refresh_credentials(

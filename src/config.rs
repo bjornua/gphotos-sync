@@ -1,11 +1,11 @@
+use crate::gauth;
 use crate::hash;
 
 #[derive(serde::Serialize, serde::Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Config {
-    pub refresh_token: Option<String>,
+    pub credentials: Option<gauth::Credentials>,
     pub uploaded_files: std::collections::BTreeSet<hash::HashDigest>,
-    // pub uploaded_files: Vec<HashDigest>,
 }
 
 #[derive(Debug)]

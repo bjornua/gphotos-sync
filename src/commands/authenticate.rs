@@ -14,14 +14,14 @@ pub async fn main(_matches: &ArgMatches<'_>) {
             return;
         }
     };
-    if config.refresh_token.is_some() {
+    if config.credentials.is_some() {
         println!("Already authenticated.");
         return;
     }
 
     println!("Opening browser. Follow the instructions to authenticate gphotos-sync.");
-    let refresh_token = match crate::gauth::oauth().await {
-        Ok(refresh_token) => refresh_token,
+    let credentials = match crate::gauth::oauth().await {
+        Ok(credentials) => credentials,
         Err(error) => {
             println!("{:?}", error);
             return;
@@ -29,7 +29,7 @@ pub async fn main(_matches: &ArgMatches<'_>) {
     };
 
     let new_config = config::Config {
-        refresh_token: Some(refresh_token),
+        credentials: Some(credentials),
         ..config
     };
     match config::save("./gphotos-sync.cbor", &new_config) {
