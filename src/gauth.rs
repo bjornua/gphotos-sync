@@ -129,16 +129,14 @@ pub fn open_spawn<T: Into<OsString>>(url: T) {
 
 #[derive(Debug)]
 pub enum OauthTokenError {
-    ReqwestError(reqwest::Error),
-    ReadBodyError(reqwest::Error),
+    Reqwest(reqwest::Error),
+    ReadBody(reqwest::Error),
 }
 #[derive(serde::Deserialize, Debug)]
-struct Response {
+struct CodeTokenResponse {
     refresh_token: String,
     access_token: String,
     expires_in: i64,
-    #[serde(flatten)]
-    extra: std::collections::HashMap<String, serde_json::Value>,
 }
 
 pub async fn oauth_token(code: &str) -> Result<Credentials, OauthTokenError> {
@@ -153,41 +151,76 @@ pub async fn oauth_token(code: &str) -> Result<Credentials, OauthTokenError> {
         ])
         .send()
         .await
-        .map_err(OauthTokenError::ReqwestError)?
-        .json::<Response>()
+        .map_err(OauthTokenError::Reqwest)?
+        .json::<CodeTokenResponse>()
         .await
-        .map_err(OauthTokenError::ReadBodyError)?;
+        .map_err(OauthTokenError::ReadBody)?;
 
     return Ok(Credentials {
         access_token: response.access_token,
         expires: chrono::Utc::now() + chrono::Duration::seconds(response.expires_in),
-        refresh_token: response.refresh_token
+        refresh_token: response.refresh_token,
     });
 }
 
-#[derive(Debug)]
-pub enum RefreshCredentialsError {
-    ReqwestError(reqwest::Error),
-}
-
-#[derive(serde::Deserialize, serde::Serialize, Clone)]
+#[derive(serde::Deserialize, serde::Serialize, Clone, Debug)]
 pub struct Credentials {
     pub refresh_token: String,
     pub access_token: String,
     pub expires: chrono::DateTime<chrono::Utc>,
 }
 
+#[derive(Debug)]
+pub enum RefreshCredentialsError {
+    Request(reqwest::Error),
+    ReadBody(reqwest::Error),
+    ParseBody(String, serde_json::Error),
+}
+
+#[derive(serde::Deserialize, Debug)]
+struct RefreshTokenResponse {
+    access_token: String,
+    expires_in: i64,
+}
+
 pub async fn refresh_credentials(
-    credentials: Credentials,
+    refresh_token: &str,
 ) -> Result<Credentials, RefreshCredentialsError> {
-    return Ok(credentials);
+    let response = reqwest::Client::new()
+        .post("https://www.googleapis.com/oauth2/v4/token")
+        .form(&[
+            ("refresh_token", refresh_token),
+            ("client_id", CLIENT_ID),
+            ("client_secret", CLIENT_SECRET),
+            ("redirect_uri", REDIRECT_URI),
+            ("grant_type", "refresh_token"),
+        ])
+        .send()
+        .await
+        .map_err(RefreshCredentialsError::Request)?;
+
+    let body = response
+        .text()
+        .await
+        .map_err(RefreshCredentialsError::ReadBody)?;
+
+    let payload = serde_json::from_str::<RefreshTokenResponse>(&body)
+        .map_err(|e| RefreshCredentialsError::ParseBody(body, e))?;
+
+    let credentials = Credentials {
+        refresh_token: refresh_token.to_string(),
+        access_token: payload.access_token,
+        expires: chrono::Utc::now() + chrono::Duration::seconds(payload.expires_in),
+    };
+
+    return Ok(dbg!(credentials));
 }
 
 pub async fn refresh_credentials_if_needed(
     credentials: Credentials,
 ) -> Result<Credentials, RefreshCredentialsError> {
-    if credentials.expires > chrono::Utc::now() {
-        return refresh_credentials(credentials).await;
+    if credentials.expires < chrono::Utc::now() {
+        return refresh_credentials(&credentials.refresh_token).await;
     }
     return Ok(credentials);
 }
