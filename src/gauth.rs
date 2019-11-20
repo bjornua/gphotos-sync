@@ -132,9 +132,13 @@ pub enum OauthTokenError {
     ReqwestError(reqwest::Error),
     ReadBodyError(reqwest::Error),
 }
-#[derive(serde::Deserialize)]
+#[derive(serde::Deserialize, Debug)]
 struct Response {
     refresh_token: String,
+    access_token: String,
+    expires_in: i64,
+    #[serde(flatten)]
+    extra: std::collections::HashMap<String, serde_json::Value>,
 }
 
 pub async fn oauth_token(code: &str) -> Result<Credentials, OauthTokenError> {
@@ -149,13 +153,16 @@ pub async fn oauth_token(code: &str) -> Result<Credentials, OauthTokenError> {
         ])
         .send()
         .await
-        .map_err(OauthTokenError::ReqwestError)?;
-
-    let payload = response
+        .map_err(OauthTokenError::ReqwestError)?
         .json::<Response>()
         .await
         .map_err(OauthTokenError::ReadBodyError)?;
-    return Ok(payload.refresh_token);
+
+    return Ok(Credentials {
+        access_token: response.access_token,
+        expires: chrono::Utc::now() + chrono::Duration::seconds(response.expires_in),
+        refresh_token: response.refresh_token
+    });
 }
 
 #[derive(Debug)]

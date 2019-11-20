@@ -37,7 +37,7 @@ pub fn save<P: AsRef<std::path::Path>>(path: P, config: &Config) -> Result<(), S
 }
 fn create() -> Config {
     Config {
-        refresh_token: None,
+        credentials: None,
         uploaded_files: std::collections::BTreeSet::new(),
     }
 }

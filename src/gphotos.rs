@@ -5,7 +5,7 @@ pub enum UploadFileError {
 }
 
 pub struct UploadFileOk {
-    upload_token: String,
+    pub upload_token: String,
 }
 
 pub async fn upload_file(
