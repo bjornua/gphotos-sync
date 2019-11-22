@@ -23,6 +23,8 @@ enum MainError {
     NotAuthenticated,
     RefreshCredentials(gauth::RefreshCredentialsError),
     HashFile(std::path::PathBuf, hash::HashFileError),
+    UploadFile(gphotos::UploadFileError),
+    BatchCreate(gphotos::BatchCreateError),
     SaveConfig(config::SaveError),
 }
 
@@ -44,7 +46,7 @@ async fn main_inner(matches: &ArgMatches<'_>) -> Result<(), MainError> {
     let files = crate::iterdir::findfiles(directory, EXTENSIONS)
         .filter_map(Result::ok)
         .map(|m| m.dir_entry.path());
-
+    let mut upload_tokens: Vec<String> = Vec::new();
     for path in files {
         let (_hash_file_size, hash) =
             hash::hash_file(&path).map_err(|e| MainError::HashFile(path.clone(), e))?;
@@ -54,18 +56,28 @@ async fn main_inner(matches: &ArgMatches<'_>) -> Result<(), MainError> {
         credentials = gauth::refresh_credentials_if_needed(credentials)
             .await
             .map_err(MainError::RefreshCredentials)?;
+
         match gphotos::upload_file(&credentials.access_token, &path).await {
-            Ok(gphotos::UploadFileOk { upload_token }) => upload_token,
-            Err(err) => {
-                println!(
-                    "An error happened while uploading file: {:?}: {:?}",
-                    path, err
-                );
-                continue;
+            Ok(t) => {
+                upload_tokens.push(t);
+            }
+            Err(gphotos::UploadFileError::Duplicate) => {}
+            Err(e) => {
+                return Err(MainError::UploadFile(e));
             }
         };
         cfg.uploaded_files.insert(hash);
     }
+
+    credentials = gauth::refresh_credentials_if_needed(credentials)
+        .await
+        .map_err(MainError::RefreshCredentials)?;
+
+    dbg!(
+        gphotos::batch_create(&credentials.access_token, upload_tokens)
+            .await
+            .map_err(MainError::BatchCreate)?
+    );
 
     config::save("./gphotos-sync.cbor", &cfg).map_err(MainError::SaveConfig)?;
     return Ok(());

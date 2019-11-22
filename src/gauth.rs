@@ -213,7 +213,7 @@ pub async fn refresh_credentials(
         expires: chrono::Utc::now() + chrono::Duration::seconds(payload.expires_in),
     };
 
-    return Ok(dbg!(credentials));
+    return Ok(credentials);
 }
 
 pub async fn refresh_credentials_if_needed(
