@@ -217,10 +217,11 @@ pub async fn refresh_credentials(
 }
 
 pub async fn refresh_credentials_if_needed(
-    credentials: Credentials,
-) -> Result<Credentials, RefreshCredentialsError> {
+    credentials: &mut Credentials,
+) -> Result<bool, RefreshCredentialsError> {
     if credentials.expires < chrono::Utc::now() {
-        return refresh_credentials(&credentials.refresh_token).await;
+        *credentials = refresh_credentials(&credentials.refresh_token).await?;
+        return Ok(true);
     }
-    return Ok(credentials);
+    return Ok(false);
 }

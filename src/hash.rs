@@ -3,6 +3,7 @@ use std::hash::Hasher;
 use std::io::Read;
 
 pub type HashDigest = u64;
+pub type Hashes = std::collections::BTreeSet<HashDigest>;
 
 #[derive(Debug)]
 pub enum HashFileError {

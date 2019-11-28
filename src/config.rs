@@ -1,11 +1,11 @@
-use crate::gauth;
-use crate::hash;
+use crate::gauth::Credentials;
+use crate::hash::Hashes;
 
-#[derive(serde::Serialize, serde::Deserialize)]
+#[derive(serde::Serialize, serde::Deserialize, Clone)]
 #[serde(deny_unknown_fields)]
 pub struct Config {
-    pub credentials: Option<gauth::Credentials>,
-    pub uploaded_files: std::collections::BTreeSet<hash::HashDigest>,
+    pub credentials: Credentials,
+    pub uploaded_files: Hashes,
 }
 
 #[derive(Debug)]
@@ -15,7 +15,7 @@ pub enum GetError {
     NotFound,
 }
 
-fn get<P: AsRef<std::path::Path>>(path: P) -> Result<Config, GetError> {
+pub fn get<P: AsRef<std::path::Path>>(path: P) -> Result<Config, GetError> {
     let file_result = std::fs::File::open(path);
     let file = file_result.map_err(|e| match e.kind() {
         std::io::ErrorKind::NotFound => GetError::NotFound,
@@ -35,16 +35,9 @@ pub fn save<P: AsRef<std::path::Path>>(path: P, config: &Config) -> Result<(), S
     serde_cbor::to_writer(file, config).map_err(SaveError::SerdeError)?;
     return Ok(());
 }
-fn create() -> Config {
+pub fn create(credentials: Credentials) -> Config {
     Config {
-        credentials: None,
-        uploaded_files: std::collections::BTreeSet::new(),
-    }
-}
-pub fn get_or_create(path: &str) -> Result<Config, GetError> {
-    match get(path) {
-        Ok(config) => return Ok(config),
-        Err(GetError::NotFound) => Ok(create()),
-        e => e,
+        credentials,
+        uploaded_files: Hashes::new(),
     }
 }

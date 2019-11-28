@@ -5,7 +5,6 @@ pub enum UploadFileError {
     Request(reqwest::Error),
     ReadFile(std::io::Error),
     ResponseReadBody(reqwest::Error),
-    Duplicate,
 }
 
 pub async fn upload_file(
@@ -17,6 +16,7 @@ pub async fn upload_file(
     file.read_to_end(&mut buffer)
         .map_err(UploadFileError::ReadFile)?;
 
+    println!("Uploading {:?}", path);
     return reqwest::Client::new()
         .post("https://photoslibrary.googleapis.com/v1/uploads")
         .bearer_auth(access_token)
@@ -78,8 +78,9 @@ pub struct MediaItemResultStatus {
 
 pub async fn batch_create(
     access_token: &str,
-    tokens: Vec<String>,
+    tokens: &[String],
 ) -> Result<Vec<(String, Result<(), MediaItemResultStatus>)>, BatchCreateError> {
+    println!("Batch create {:?}", tokens);
     if tokens.len() == 0 {
         return Ok(Vec::new());
     }
@@ -91,7 +92,7 @@ pub async fn batch_create(
                 MediaItem {
                     description: String::new(),
                     simple_media_item: SimpleMediaItem {
-                        upload_token: token,
+                        upload_token: token.clone(),
                     },
                 }
             })

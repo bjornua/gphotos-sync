@@ -7,18 +7,6 @@ pub fn get_subcommand() -> App<'static, 'static> {
 }
 
 pub async fn main(_matches: &ArgMatches<'_>) {
-    let config = match config::get_or_create("./gphotos-sync.cbor") {
-        Ok(config) => config,
-        Err(e) => {
-            println!("Configuration file error: {:?}", e);
-            return;
-        }
-    };
-    if config.credentials.is_some() {
-        println!("Already authenticated.");
-        return;
-    }
-
     println!("Opening browser. Follow the instructions to authenticate gphotos-sync.");
     let credentials = match crate::gauth::oauth().await {
         Ok(credentials) => credentials,
@@ -28,10 +16,7 @@ pub async fn main(_matches: &ArgMatches<'_>) {
         }
     };
 
-    let new_config = config::Config {
-        credentials: Some(credentials),
-        ..config
-    };
+    let new_config = config::create(credentials);
     match config::save("./gphotos-sync.cbor", &new_config) {
         Ok(()) => (),
         Err(error) => {

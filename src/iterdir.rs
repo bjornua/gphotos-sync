@@ -1,3 +1,4 @@
+use crate::utils::path_matches_ext;
 use std::ffi::OsString;
 use std::fs::{read_dir, DirEntry, ReadDir};
 
@@ -90,29 +91,15 @@ impl Iterator for RecursiveIterDir {
 }
 
 #[derive(Debug)]
-pub struct Match {
-    pub dir_entry: DirEntry,
-    pub extension: OsString,
-}
-
-#[derive(Debug)]
 pub enum FindFilesError {
-    WrongExtension {
-        dir_entry: DirEntry,
-        extension: OsString,
-    },
-    MissingExtension {
-        dir_entry: DirEntry,
-    },
+    WrongExtension { path: std::path::PathBuf },
     IterDirError(IterDirError),
 }
 
-pub fn findfiles<T: Into<OsString>, U: IntoIterator<Item = T>>(
+pub fn findfiles_with_ext(
     directory: OsString,
-    extensions: U,
-) -> impl Iterator<Item = Result<Match, FindFilesError>> {
+) -> impl Iterator<Item = Result<std::path::PathBuf, FindFilesError>> {
     let files = RecursiveIterDir::new(directory);
-    let extensions: Vec<OsString> = extensions.into_iter().map(|x| x.into()).collect();
 
     let files = files.map(move |file| {
         let dir_entry = match file {
@@ -120,22 +107,11 @@ pub fn findfiles<T: Into<OsString>, U: IntoIterator<Item = T>>(
             Err(e) => return Err(FindFilesError::IterDirError(e)),
         };
         let path = dir_entry.path();
-        let extension = match path.extension() {
-            Some(extension) => extension,
-            None => return Err(FindFilesError::MissingExtension { dir_entry }),
+        if !path_matches_ext(&path) {
+            return Err(FindFilesError::WrongExtension { path });
         };
 
-        if !extensions.iter().any(|e| e == extension) {
-            return Err(FindFilesError::WrongExtension {
-                dir_entry,
-                extension: extension.to_owned(),
-            });
-        };
-
-        return Ok(Match {
-            dir_entry,
-            extension: extension.to_owned(),
-        });
+        return Ok(path);
     });
     files
 }

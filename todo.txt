@@ -1,5 +1,6 @@
-* Split configuration into authentication and cache
-* Batch create can only upload 50 media items at a time. Need to batch_create at least before 50 photos.
-* Implement watch /directory
-    * Periodically run `upload /directory`
-    * [Optional] Automount /dev/disk entry 
+* Split configuration into credentials.cbor and uploaded_files.cbor
+* Rewatch when mount, removal, change, create the watch folder
+* Refactor
+* Logging
+* Handle batch upload errors (split files)
+* Upload errors should not exit
