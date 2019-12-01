@@ -80,7 +80,6 @@ pub async fn batch_create(
     access_token: &str,
     tokens: &[String],
 ) -> Result<Vec<(String, Result<(), MediaItemResultStatus>)>, BatchCreateError> {
-    println!("Batch create {:?}", tokens);
     if tokens.len() == 0 {
         return Ok(Vec::new());
     }

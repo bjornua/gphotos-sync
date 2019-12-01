@@ -34,9 +34,21 @@ pub async fn main(matches: &ArgMatches<'_>) {
 }
 
 async fn main_inner(matches: &ArgMatches<'_>) -> Result<(), MainError> {
-    let directory = matches.value_of_os("DIRECTORY").unwrap().to_os_string();
+    let directory = matches.value_of_os("DIRECTORY").unwrap().to_path_buf();
+    std::path::PathBuf::from(directory);
+
+    let (tx, rx) = channel();
+    watch_parentdir(tx);
+    
 
     let mut cfg = config::get("./gphotos-sync.cbor").map_err(MainError::ReadConfiguration)?;
+}
+
+async fn watch_parentdir(path) {
+
+}
+
+async fn sync_dir(path: &std::path::Path) {
     let (tx, rx) = channel();
     let mut watcher = notify::RecommendedWatcher::new(tx, std::time::Duration::from_secs(2))
         .map_err(MainError::CreateWatch)?;
