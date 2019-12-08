@@ -21,10 +21,6 @@ pub fn get_subcommand() -> App<'static, 'static> {
 #[derive(Debug)]
 enum MainError {
     ReadConfiguration(config::GetError),
-    CreateWatch(notify::Error),
-    StartWatch(notify::Error),
-    UploadError(upload::UploadError),
-    SaveConfig(config::SaveError),
 }
 
 pub async fn main(matches: &ArgMatches<'_>) {
@@ -34,36 +30,41 @@ pub async fn main(matches: &ArgMatches<'_>) {
 }
 
 async fn main_inner(matches: &ArgMatches<'_>) -> Result<(), MainError> {
-    let directory = matches.value_of_os("DIRECTORY").unwrap().to_path_buf();
-    std::path::PathBuf::from(directory);
+    let directory = std::path::Path::new(matches.value_of_os("DIRECTORY").unwrap());
 
     let (tx, rx) = channel();
-    watch_parentdir(tx);
-    
+    watch_parentdir(directory, tx);
 
     let mut cfg = config::get("./gphotos-sync.cbor").map_err(MainError::ReadConfiguration)?;
+
+    return Ok(());
 }
 
-async fn watch_parentdir(path) {
+async fn watch_parentdir(path: &std::path::Path, tx: crossbeam_channel::Sender<()>) {}
 
+enum SyncDirError {
+    CreateWatch(notify::Error),
+    StartWatch(notify::Error),
+    UploadError(upload::UploadError),
+    SaveConfig(config::SaveError),
 }
 
-async fn sync_dir(path: &std::path::Path) {
+async fn sync_dir(path: &std::path::Path, cfg: &mut config::Config) -> Result<(), SyncDirError> {
     let (tx, rx) = channel();
     let mut watcher = notify::RecommendedWatcher::new(tx, std::time::Duration::from_secs(2))
-        .map_err(MainError::CreateWatch)?;
+        .map_err(SyncDirError::CreateWatch)?;
 
     watcher
-        .watch(directory, notify::RecursiveMode::Recursive)
-        .map_err(MainError::StartWatch)?;
+        .watch(path, notify::RecursiveMode::Recursive)
+        .map_err(SyncDirError::StartWatch)?;
 
     loop {
         match rx.recv() {
             Ok(Ok(event)) => {
                 handle_event(&mut cfg.credentials, &mut cfg.uploaded_files, event)
                     .await
-                    .map_err(MainError::UploadError)?;
-                config::save("./gphotos-sync.cbor", &cfg).map_err(MainError::SaveConfig)?;
+                    .map_err(SyncDirError::UploadError)?;
+                config::save("./gphotos-sync.cbor", &cfg).map_err(SyncDirError::SaveConfig)?;
             }
             Ok(Err(err)) => {
                 println!("Watch error: {:?}", err);
