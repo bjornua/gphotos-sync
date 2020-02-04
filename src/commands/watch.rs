@@ -29,9 +29,32 @@ pub async fn main(matches: &ArgMatches<'_>) {
     };
 }
 
+async fn main_inner(matches: &ArgMatches<'_>) -> Result<(), MainError> {
+    let directory = std::path::Path::new(matches.value_of_os("DIRECTORY").unwrap());
+
+    'mainloop: loop {
+        let path_moved = watch_path_moved(directory);
+        let file_changes = watch_file_changes(directory);
+        let mut cfg = config::get("./gphotos-sync.cbor").map_err(MainError::ReadConfiguration)?;
+        loop {
+            match futures::future::select(path_moved, file_changes).await {
+                a => {
+                    // Path change detected. Reset.
+                    break;
+                }
+                b => {
+                    // Handle file changes. Continue.
+                    continue;
+                }
+            };
+        }
+    }
+    return Ok(());
+}
+
 // New plan:
 // Use crossbeam
-// 
+//
 // watch (maindir)
 // -> queue: changes in main dir
 // -> queue: changes in parentdirs
@@ -45,68 +68,68 @@ pub async fn main(matches: &ArgMatches<'_>) {
 //   -> if change in parentdir, restart
 //   -> if changes in main dir, check and upload
 
-async fn main_inner(matches: &ArgMatches<'_>) -> Result<(), MainError> {
-    let directory = std::path::Path::new(matches.value_of_os("DIRECTORY").unwrap());
+// async fn main_inner(matches: &ArgMatches<'_>) -> Result<(), MainError> {
+//     let directory = std::path::Path::new(matches.value_of_os("DIRECTORY").unwrap());
 
-    let (tx, rx) = channel();
-    watch_parentdir(directory, tx);
+//     let (tx, rx) = channel();
+//     watch_parentdir(directory, tx);
 
-    let mut cfg = config::get("./gphotos-sync.cbor").map_err(MainError::ReadConfiguration)?;
+//     let mut cfg = config::get("./gphotos-sync.cbor").map_err(MainError::ReadConfiguration)?;
 
-    return Ok(());
-}
+//     return Ok(());
+// }
 
-async fn watch_parentdir(path: &std::path::Path, tx: crossbeam_channel::Sender<()>) {}
+// async fn watch_parentdir(path: &std::path::Path, tx: crossbeam_channel::Sender<()>) {}
 
-enum SyncDirError {
-    CreateWatch(notify::Error),
-    StartWatch(notify::Error),
-    UploadError(upload::UploadError),
-    SaveConfig(config::SaveError),
-}
+// enum SyncDirError {
+//     CreateWatch(notify::Error),
+//     StartWatch(notify::Error),
+//     UploadError(upload::UploadError),
+//     SaveConfig(config::SaveError),
+// }
 
-async fn sync_dir(path: &std::path::Path, cfg: &mut config::Config) -> Result<(), SyncDirError> {
-    let (tx, rx) = channel();
-    let mut watcher = notify::RecommendedWatcher::new(tx, std::time::Duration::from_secs(2))
-        .map_err(SyncDirError::CreateWatch)?;
+// async fn sync_dir(path: &std::path::Path, cfg: &mut config::Config) -> Result<(), SyncDirError> {
+//     let (tx, rx) = channel();
+//     let mut watcher = notify::RecommendedWatcher::new(tx, std::time::Duration::from_secs(2))
+//         .map_err(SyncDirError::CreateWatch)?;
 
-    watcher
-        .watch(path, notify::RecursiveMode::Recursive)
-        .map_err(SyncDirError::StartWatch)?;
+//     watcher
+//         .watch(path, notify::RecursiveMode::Recursive)
+//         .map_err(SyncDirError::StartWatch)?;
 
-    loop {
-        match rx.recv() {
-            Ok(Ok(event)) => {
-                handle_event(&mut cfg.credentials, &mut cfg.uploaded_files, event)
-                    .await
-                    .map_err(SyncDirError::UploadError)?;
-                config::save("./gphotos-sync.cbor", &cfg).map_err(SyncDirError::SaveConfig)?;
-            }
-            Ok(Err(err)) => {
-                println!("Watch error: {:?}", err);
-            }
-            Err(err) => {
-                println!("Channel error: {:?}", err);
-            }
-        }
-    }
-}
+//     loop {
+//         match rx.recv() {
+//             Ok(Ok(event)) => {
+//                 handle_event(&mut cfg.credentials, &mut cfg.uploaded_files, event)
+//                     .await
+//                     .map_err(SyncDirError::UploadError)?;
+//                 config::save("./gphotos-sync.cbor", &cfg).map_err(SyncDirError::SaveConfig)?;
+//             }
+//             Ok(Err(err)) => {
+//                 println!("Watch error: {:?}", err);
+//             }
+//             Err(err) => {
+//                 println!("Channel error: {:?}", err);
+//             }
+//         }
+//     }
+// }
 
-async fn handle_event(
-    credentials: &mut Credentials,
-    uploaded_files: &mut Hashes,
-    event: notify::event::Event,
-) -> Result<(), upload::UploadError> {
-    use notify::event::{CreateKind, EventKind, ModifyKind};
-    match event.kind {
-        EventKind::Create(CreateKind::File)
-        | EventKind::Create(CreateKind::Any)
-        | EventKind::Modify(ModifyKind::Data(_))
-        | EventKind::Modify(ModifyKind::Any) => {
-            println!("Processing {:?}", event.paths);
-            let paths = event.paths.into_iter().filter(path_matches_ext);
-            upload::upload_many(credentials, uploaded_files, paths).await
-        }
-        _ => Ok(()),
-    }
-}
+// async fn handle_event(
+//     credentials: &mut Credentials,
+//     uploaded_files: &mut Hashes,
+//     event: notify::event::Event,
+// ) -> Result<(), upload::UploadError> {
+//     use notify::event::{CreateKind, EventKind, ModifyKind};
+//     match event.kind {
+//         EventKind::Create(CreateKind::File)
+//         | EventKind::Create(CreateKind::Any)
+//         | EventKind::Modify(ModifyKind::Data(_))
+//         | EventKind::Modify(ModifyKind::Any) => {
+//             println!("Processing {:?}", event.paths);
+//             let paths = event.paths.into_iter().filter(path_matches_ext);
+//             upload::upload_many(credentials, uploaded_files, paths).await
+//         }
+//         _ => Ok(()),
+//     }
+// }
