@@ -26,6 +26,7 @@ pub async fn main(matches: &ArgMatches<'_>) {
     };
 }
 
+
 async fn main_inner(matches: &ArgMatches<'_>) -> Result<(), MainError> {
     let directory = matches.value_of_os("DIRECTORY").unwrap().to_os_string();
 

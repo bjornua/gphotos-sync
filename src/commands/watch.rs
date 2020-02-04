@@ -29,6 +29,22 @@ pub async fn main(matches: &ArgMatches<'_>) {
     };
 }
 
+// New plan:
+// Use crossbeam
+// 
+// watch (maindir)
+// -> queue: changes in main dir
+// -> queue: changes in parentdirs
+// -> race:
+//     -> queue.recv
+//     -> watch_path_moved
+//       -> race:
+//         -> watch ../
+//         -> watch ../../
+//         -> watch ../../../
+//   -> if change in parentdir, restart
+//   -> if changes in main dir, check and upload
+
 async fn main_inner(matches: &ArgMatches<'_>) -> Result<(), MainError> {
     let directory = std::path::Path::new(matches.value_of_os("DIRECTORY").unwrap());
 
