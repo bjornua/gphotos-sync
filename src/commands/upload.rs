@@ -15,7 +15,7 @@ pub fn get_subcommand() -> App<'static, 'static> {
 
 #[derive(Debug)]
 enum MainError {
-    ReadConfiguration(config::GetError),
+    LoadConfig(config::LoadError),
     UploadError(upload::UploadError),
     SaveConfig(config::SaveError),
 }
@@ -26,11 +26,10 @@ pub async fn main(matches: &ArgMatches<'_>) {
     };
 }
 
-
 async fn main_inner(matches: &ArgMatches<'_>) -> Result<(), MainError> {
     let directory = matches.value_of_os("DIRECTORY").unwrap().to_os_string();
 
-    let mut cfg = config::get("./gphotos-sync.cbor").map_err(MainError::ReadConfiguration)?;
+    let mut cfg = config::load("./gphotos-sync.cbor").map_err(MainError::LoadConfig)?;
 
     let files = crate::iterdir::findfiles_with_ext(directory).filter_map(Result::ok);
 

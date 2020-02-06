@@ -1,10 +1,9 @@
 use crate::config;
-use crate::gauth::Credentials;
-use crate::hash::Hashes;
-use crate::upload;
-use crate::utils::path_matches_ext;
+// use crate::gauth::Credentials;
+// use crate::hash::Hashes;
+// use crate::upload;
+// use crate::utils::path_matches_ext;
 use clap::{App, Arg, ArgMatches, SubCommand};
-use crossbeam_channel::unbounded as channel;
 use notify::Watcher;
 pub fn get_subcommand() -> App<'static, 'static> {
     SubCommand::with_name("watch")
@@ -20,7 +19,7 @@ pub fn get_subcommand() -> App<'static, 'static> {
 
 #[derive(Debug)]
 enum MainError {
-    ReadConfiguration(config::GetError),
+    LoadConfig(config::LoadError),
 }
 
 pub async fn main(matches: &ArgMatches<'_>) {
@@ -30,26 +29,37 @@ pub async fn main(matches: &ArgMatches<'_>) {
 }
 
 async fn main_inner(matches: &ArgMatches<'_>) -> Result<(), MainError> {
-    let directory = std::path::Path::new(matches.value_of_os("DIRECTORY").unwrap());
+    let path = std::path::Path::new(matches.value_of_os("DIRECTORY").unwrap());
 
-    'mainloop: loop {
-        let path_moved = watch_path_moved(directory);
-        let file_changes = watch_file_changes(directory);
-        let mut cfg = config::get("./gphotos-sync.cbor").map_err(MainError::ReadConfiguration)?;
+    loop {
+        // If any part of the watched path is moved, we should reset. Otherwise, the program keep
+        // watching the old (moved) file descriptors.
+        let watched_path_moved = watch_parent_moves(path);
+
+        let file_changed = watch_file_changes(path);
+        let mut cfg = config::load("./gphotos-sync.cbor").map_err(MainError::LoadConfig)?;
         loop {
-            match futures::future::select(path_moved, file_changes).await {
-                a => {
-                    // Path change detected. Reset.
+            match futures::future::select(watched_path_moved, files_changed).await {
+                () => {
                     break;
                 }
-                b => {
-                    // Handle file changes. Continue.
-                    continue;
+                changed_files => {
+                    // Handle files changes. Continue.
+                    sync_files(changed_files)?
                 }
             };
         }
     }
     return Ok(());
+}
+
+async fn watch_file_changes(
+    path: &std::path::Path,
+) -> impl futures::Stream<Item = std::path::PathBuf> {
+    // notify::RecommendedWatcher::new(tx: Sender<Result<Event>>, delay: Duration)
+}
+async fn watch_parent_moves(path: &std::path::Path) -> impl futures::future::Future<()> {
+    // notify::RecommendedWatcher::new(tx: Sender<Result<Event>>, delay: Duration)
 }
 
 // New plan:

@@ -9,19 +9,19 @@ pub struct Config {
 }
 
 #[derive(Debug)]
-pub enum GetError {
+pub enum LoadError {
     OpenError(std::io::Error),
     SerdeError(serde_cbor::Error),
     NotFound,
 }
 
-pub fn get<P: AsRef<std::path::Path>>(path: P) -> Result<Config, GetError> {
+pub fn load<P: AsRef<std::path::Path>>(path: P) -> Result<Config, LoadError> {
     let file_result = std::fs::File::open(path);
     let file = file_result.map_err(|e| match e.kind() {
-        std::io::ErrorKind::NotFound => GetError::NotFound,
-        _ => GetError::OpenError(e),
+        std::io::ErrorKind::NotFound => LoadError::NotFound,
+        _ => LoadError::OpenError(e),
     })?;
-    serde_cbor::from_reader(file).map_err(GetError::SerdeError)
+    serde_cbor::from_reader(file).map_err(LoadError::SerdeError)
 }
 
 #[derive(Debug)]
