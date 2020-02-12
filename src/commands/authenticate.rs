@@ -1,6 +1,6 @@
-use clap::{App, ArgMatches, SubCommand};
-// use std::path;
 use crate::config;
+
+use clap::{App, ArgMatches, SubCommand};
 
 pub fn get_subcommand() -> App<'static, 'static> {
     SubCommand::with_name("authenticate").about("Authenticate with Google")
