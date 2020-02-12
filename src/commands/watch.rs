@@ -4,6 +4,7 @@ use crate::config;
 // use crate::upload;
 // use crate::utils::path_matches_ext;
 use clap::{App, Arg, ArgMatches, SubCommand};
+use futures::channel;
 use notify::Watcher;
 pub fn get_subcommand() -> App<'static, 'static> {
     SubCommand::with_name("watch")
@@ -56,6 +57,7 @@ async fn main_inner(matches: &ArgMatches<'_>) -> Result<(), MainError> {
 async fn watch_file_changes(
     path: &std::path::Path,
 ) -> impl futures::Stream<Item = std::path::PathBuf> {
+    notify::RecommendedWatcher::new_immediate(|x| x);
     // notify::RecommendedWatcher::new(tx: Sender<Result<Event>>, delay: Duration)
 }
 async fn watch_parent_moves(path: &std::path::Path) -> impl futures::future::Future<()> {
