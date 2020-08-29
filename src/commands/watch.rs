@@ -57,11 +57,14 @@ async fn main_inner(matches: &ArgMatches<'_>) -> Result<(), MainError> {
 async fn watch_file_changes(
     path: &std::path::Path,
 ) -> impl futures::Stream<Item = std::path::PathBuf> {
-    notify::RecommendedWatcher::new_immediate(|x| x);
+    // notify::RecommendedWatcher::new_immediate(|x| x);
+    unimplemented!();
+
     // notify::RecommendedWatcher::new(tx: Sender<Result<Event>>, delay: Duration)
 }
 async fn watch_parent_moves(path: &std::path::Path) -> impl futures::future::Future<()> {
     // notify::RecommendedWatcher::new(tx: Sender<Result<Event>>, delay: Duration)
+    unimplemented!();
 }
 
 // New plan:
