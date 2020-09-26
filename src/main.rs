@@ -24,9 +24,9 @@ async fn main() -> () {
     let matches = app.get_matches();
 
     match matches.subcommand() {
-        ("upload", Some(args)) => commands::upload::main(args).await,
-        ("authenticate", Some(args)) => commands::authenticate::main(args).await,
-        ("watch", Some(args)) => commands::watch::main(args).await,
+        ("upload", Some(args)) => commands::upload::command(args).await,
+        ("authenticate", Some(args)) => commands::authenticate::command(args).await,
+        ("watch", Some(args)) => commands::watch::command(args).await,
         (_, _) => unimplemented!(),
     }
 }

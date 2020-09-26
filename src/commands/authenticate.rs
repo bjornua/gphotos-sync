@@ -6,7 +6,7 @@ pub fn get_subcommand() -> App<'static, 'static> {
     SubCommand::with_name("authenticate").about("Authenticate with Google")
 }
 
-pub async fn main(_matches: &ArgMatches<'_>) {
+pub async fn command(_matches: &ArgMatches<'_>) {
     println!("Opening browser. Follow the instructions to authenticate gphotos-sync.");
     let credentials = match crate::gauth::oauth().await {
         Ok(credentials) => credentials,

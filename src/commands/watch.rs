@@ -4,8 +4,12 @@ use crate::config;
 // use crate::upload;
 // use crate::utils::path_matches_ext;
 use clap::{App, Arg, ArgMatches, SubCommand};
-use futures::channel;
-use notify::Watcher;
+use futures::SinkExt;
+use notify::{self, Watcher};
+
+use core::future::Future;
+use futures::future;
+use futures::StreamExt;
 pub fn get_subcommand() -> App<'static, 'static> {
     SubCommand::with_name("watch")
         .about("Watches a folder for new images and uploads them to Google Photos")
@@ -23,48 +27,81 @@ enum MainError {
     LoadConfig(config::LoadError),
 }
 
-pub async fn main(matches: &ArgMatches<'_>) {
-    if let Err(e) = main_inner(matches).await {
+pub async fn command(matches: &ArgMatches<'_>) {
+    let path = std::path::Path::new(matches.value_of_os("DIRECTORY").unwrap());
+
+    if let Err(e) = main_loop(path).await {
         println!("Error: {:?}", e);
     };
 }
 
-async fn main_inner(matches: &ArgMatches<'_>) -> Result<(), MainError> {
-    let path = std::path::Path::new(matches.value_of_os("DIRECTORY").unwrap());
-
+async fn main_loop(path: &std::path::Path) -> Result<(), MainError> {
     loop {
-        // If any part of the watched path is moved, we should reset. Otherwise, the program keep
-        // watching the old (moved) file descriptors.
-        let watched_path_moved = watch_parent_moves(path);
-
-        let file_changed = watch_file_changes(path);
-        let mut cfg = config::load("./gphotos-sync.cbor").map_err(MainError::LoadConfig)?;
+        let mut cfg_path = path.to_owned();
+        cfg_path.push("gphotos-sync.cbor");
+        let cfg = config::load(cfg_path).map_err(MainError::LoadConfig)?;
+        let mut root_moved = watch_path_moved(path);
+        let mut file_changed_watcher = watch_file_changes(path).unwrap().ready_chunks(5);
+        let mut file_changed = file_changed_watcher.next();
         loop {
-            match futures::future::select(watched_path_moved, files_changed).await {
-                () => {
+            match future::select(root_moved, file_changed).await {
+                future::Either::Left(((), _)) | future::Either::Right((None, _)) => {
+                    println!("Restarting");
                     break;
                 }
-                changed_files => {
-                    // Handle files changes. Continue.
-                    sync_files(changed_files)?
+                future::Either::Right((Some(changed_files), root_moved_back)) => {
+                    println!("File moved");
+                    root_moved = root_moved_back;
+                    sync_files(&cfg, changed_files).await;
+                    file_changed = file_changed_watcher.next();
                 }
             };
         }
     }
-    return Ok(());
 }
 
-async fn watch_file_changes(
+#[derive(Debug)]
+enum WatchFileChangesError {
+    CreateWatcherError(notify::Error),
+    WatchDir(notify::Error),
+}
+
+fn watch_file_changes(
     path: &std::path::Path,
-) -> impl futures::Stream<Item = std::path::PathBuf> {
-    // notify::RecommendedWatcher::new_immediate(|x| x);
-    unimplemented!();
+) -> Result<impl futures::Stream<Item = std::path::PathBuf>, WatchFileChangesError> {
+    let (tx, rx) = futures::channel::mpsc::unbounded::<std::path::PathBuf>();
+    let mut watcher: notify::RecommendedWatcher =
+        notify::Watcher::new_immediate(|res: Result<notify::Event, notify::Error>| match res {
+            Ok(event) => {
+                println!("event: {:?}", event);
+                tx.send(event.paths.first().unwrap().clone());
+            }
+            Err(e) => println!("watch error: {:?}", e),
+        })
+        .map_err(WatchFileChangesError::CreateWatcherError)?;
 
-    // notify::RecommendedWatcher::new(tx: Sender<Result<Event>>, delay: Duration)
+    // Add a path to be watched. All files and directories at that path and
+    // below will be monitored for changes.
+    watcher
+        .watch(path, notify::RecursiveMode::Recursive)
+        .map_err(WatchFileChangesError::WatchDir)?;
+    // futures::stream::once(Box::pin(async { std::path::PathBuf::new() }))
+    // return futures::stream::repeat(path.to_path_buf());
+
+    return Ok(rx);
 }
-async fn watch_parent_moves(path: &std::path::Path) -> impl futures::future::Future<()> {
+
+// If any part of the watched path is moved, we should reset. Otherwise, the program keep
+// For instance for the path
+// watching the old (moved) file descriptors.
+fn watch_path_moved(path: &std::path::Path) -> impl Future<Output = ()> {
     // notify::RecommendedWatcher::new(tx: Sender<Result<Event>>, delay: Duration)
-    unimplemented!();
+    futures::future::pending()
+}
+
+fn sync_files(cfg: &config::Config, path: Vec<std::path::PathBuf>) -> impl Future<Output = ()> {
+    println!("Syncing files path {:?}", path);
+    async { () }
 }
 
 // New plan:
@@ -84,14 +121,7 @@ async fn watch_parent_moves(path: &std::path::Path) -> impl futures::future::Fut
 //   -> if changes in main dir, check and upload
 
 // async fn main_inner(matches: &ArgMatches<'_>) -> Result<(), MainError> {
-//     let directory = std::path::Path::new(matches.value_of_os("DIRECTORY").unwrap());
-
-//     let (tx, rx) = channel();
-//     watch_parentdir(directory, tx);
-
-//     let mut cfg = config::get("./gphotos-sync.cbor").map_err(MainError::ReadConfiguration)?;
-
-//     return Ok(());
+//     let directory = std::path::P()
 // }
 
 // async fn watch_parentdir(path: &std::path::Path, tx: crossbeam_channel::Sender<()>) {}

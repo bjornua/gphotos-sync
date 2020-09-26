@@ -20,13 +20,13 @@ enum MainError {
     SaveConfig(config::SaveError),
 }
 
-pub async fn main(matches: &ArgMatches<'_>) {
-    if let Err(e) = main_inner(matches).await {
+pub async fn command(matches: &ArgMatches<'_>) {
+    if let Err(e) = main(matches).await {
         println!("Error: {:?}", e);
     };
 }
 
-async fn main_inner(matches: &ArgMatches<'_>) -> Result<(), MainError> {
+async fn main(matches: &ArgMatches<'_>) -> Result<(), MainError> {
     let directory = matches.value_of_os("DIRECTORY").unwrap().to_os_string();
 
     let mut cfg = config::load("./gphotos-sync.cbor").map_err(MainError::LoadConfig)?;

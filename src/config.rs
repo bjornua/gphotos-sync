@@ -12,13 +12,14 @@ pub struct Config {
 pub enum LoadError {
     OpenError(std::io::Error),
     SerdeError(serde_cbor::Error),
-    NotFound,
+    NotFound(std::path::PathBuf),
 }
 
 pub fn load<P: AsRef<std::path::Path>>(path: P) -> Result<Config, LoadError> {
+    let path = path.as_ref();
     let file_result = std::fs::File::open(path);
     let file = file_result.map_err(|e| match e.kind() {
-        std::io::ErrorKind::NotFound => LoadError::NotFound,
+        std::io::ErrorKind::NotFound => LoadError::NotFound(path.to_path_buf()),
         _ => LoadError::OpenError(e),
     })?;
     serde_cbor::from_reader(file).map_err(LoadError::SerdeError)
