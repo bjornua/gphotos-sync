@@ -4,12 +4,12 @@ use crate::config;
 // use crate::upload;
 // use crate::utils::path_matches_ext;
 use clap::{App, Arg, ArgMatches, SubCommand};
-use futures::SinkExt;
 use notify::{self, Watcher};
 
 use core::future::Future;
 use futures::future;
 use futures::StreamExt;
+
 pub fn get_subcommand() -> App<'static, 'static> {
     SubCommand::with_name("watch")
         .about("Watches a folder for new images and uploads them to Google Photos")
@@ -41,19 +41,26 @@ async fn main_loop(path: &std::path::Path) -> Result<(), MainError> {
         cfg_path.push("gphotos-sync.cbor");
         let cfg = config::load(cfg_path).map_err(MainError::LoadConfig)?;
         let mut root_moved = watch_path_moved(path);
-        let mut file_changed_watcher = watch_file_changes(path).unwrap().ready_chunks(5);
-        let mut file_changed = file_changed_watcher.next();
+        let mut file_changed_watcher = watch_file_changes(path).unwrap();
+        let mut chunked_file_changed_watcher = file_changed_watcher.rx.ready_chunks(5);
+
+        let mut file_changed = chunked_file_changed_watcher.next();
         loop {
             match future::select(root_moved, file_changed).await {
-                future::Either::Left(((), _)) | future::Either::Right((None, _)) => {
-                    println!("Restarting");
+                future::Either::Left(((), _)) => {
+                    println!("Directory moved restarting");
                     break;
                 }
+                future::Either::Right((None, _)) => {
+                    println!("File watcher ended, restarting");
+                    break;
+                }
+
                 future::Either::Right((Some(changed_files), root_moved_back)) => {
                     println!("File moved");
                     root_moved = root_moved_back;
                     sync_files(&cfg, changed_files).await;
-                    file_changed = file_changed_watcher.next();
+                    file_changed = chunked_file_changed_watcher.next();
                 }
             };
         }
@@ -66,29 +73,41 @@ enum WatchFileChangesError {
     WatchDir(notify::Error),
 }
 
-fn watch_file_changes(
-    path: &std::path::Path,
-) -> Result<impl futures::Stream<Item = std::path::PathBuf>, WatchFileChangesError> {
-    let (tx, rx) = futures::channel::mpsc::unbounded::<std::path::PathBuf>();
-    let mut watcher: notify::RecommendedWatcher =
-        notify::Watcher::new_immediate(|res: Result<notify::Event, notify::Error>| match res {
+struct FileWatcher {
+    watcher: notify::RecommendedWatcher,
+    rx: tokio::sync::mpsc::Receiver<std::path::PathBuf>,
+}
+
+fn watch_file_changes(path: &std::path::Path) -> Result<FileWatcher, WatchFileChangesError> {
+    let (tx, rx) = tokio::sync::mpsc::channel::<std::path::PathBuf>(5);
+    let tx_rc = std::sync::Arc::new(tokio::sync::Mutex::new(tx));
+
+    let mut watcher: notify::RecommendedWatcher = notify::Watcher::new_immediate(
+        move |res: Result<notify::Event, notify::Error>| match res {
             Ok(event) => {
-                println!("event: {:?}", event);
-                tx.send(event.paths.first().unwrap().clone());
+                let tx_rc = std::sync::Arc::clone(&tx_rc);
+
+                // println!("event: {:?}", event);
+                let path = event.paths.first().unwrap().clone();
+                tokio::spawn(async move { tx_rc.lock().await.send(path).await });
             }
             Err(e) => println!("watch error: {:?}", e),
-        })
-        .map_err(WatchFileChangesError::CreateWatcherError)?;
-
-    // Add a path to be watched. All files and directories at that path and
-    // below will be monitored for changes.
+        },
+    )
+    .map_err(WatchFileChangesError::CreateWatcherError)
+    .unwrap();
     watcher
         .watch(path, notify::RecursiveMode::Recursive)
-        .map_err(WatchFileChangesError::WatchDir)?;
+        .map_err(WatchFileChangesError::WatchDir)
+        .unwrap();
+
     // futures::stream::once(Box::pin(async { std::path::PathBuf::new() }))
     // return futures::stream::repeat(path.to_path_buf());
 
-    return Ok(rx);
+    return Ok(FileWatcher {
+        watcher: watcher,
+        rx: rx,
+    });
 }
 
 // If any part of the watched path is moved, we should reset. Otherwise, the program keep
