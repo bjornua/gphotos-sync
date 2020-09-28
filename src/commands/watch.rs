@@ -9,6 +9,7 @@ use clap::{App, Arg, ArgMatches, SubCommand};
 use core::future::Future;
 use futures::future;
 use futures::StreamExt;
+use futures::Stream;
 
 pub fn get_subcommand() -> App<'static, 'static> {
     SubCommand::with_name("watch")
@@ -42,10 +43,9 @@ async fn main_loop(path: &std::path::Path) -> Result<(), MainError> {
         cfg_path.push("gphotos-sync.cbor");
         let cfg = config::load(cfg_path).map_err(MainError::LoadConfig)?;
         let mut root_moved = watch_path_moved(path);
-        let file_changed_watcher = watch_files(path).map_err(MainError::WatchFilesError)?;
-        let mut chunked_file_changed_watcher = file_changed_watcher.rx.ready_chunks(5);
+        let mut file_changed_watcher = watch_files(path).map_err(MainError::WatchFilesError)?;
 
-        let mut file_changed = chunked_file_changed_watcher.next();
+        let mut file_changed = file_changed_watcher.next();
         loop {
             match future::select(root_moved, file_changed).await {
                 future::Either::Left(((), _)) => {
@@ -61,7 +61,7 @@ async fn main_loop(path: &std::path::Path) -> Result<(), MainError> {
                     println!("{:?}", changed_files);
                     root_moved = root_moved_promise;
                     // sync_files(&cfg, changed_files).await;
-                    file_changed = chunked_file_changed_watcher.next();
+                    file_changed = file_changed_watcher.next();
                 }
             };
         }
@@ -74,14 +74,14 @@ enum WatchFilesError {
     StartWatchError(fswatcher::Error),
 }
 
-fn watch_files(path: &std::path::Path) -> Result<FSWatcher, WatchFilesError> {
+fn watch_files(path: &std::path::Path) -> Result<impl Stream<Item = Vec<fswatcher::Event>>, WatchFilesError> {
     let mut watcher = FSWatcher::new().map_err(WatchFilesError::CreateWatcherError)?;
 
     watcher
         .watch(path, notify::RecursiveMode::Recursive)
         .map_err(WatchFilesError::StartWatchError)?;
 
-    return Ok(watcher);
+    return Ok(watcher.ready_chunks(5));
 }
 
 // If any part of the watched path is moved, we should reset. Otherwise, the program keep

@@ -1,5 +1,7 @@
 use notify::{RecommendedWatcher, Watcher};
 use tokio::sync;
+use futures::stream::Stream;
+use std::task::{Context, Poll};
 
 #[derive(Debug)]
 pub enum Error {
@@ -7,13 +9,21 @@ pub enum Error {
     StartWatch(notify::Error),
 }
 
-type Event = notify::Event;
+pub type Event = notify::Event;
 
 pub type WatchMode = notify::RecursiveMode;
 
 pub struct FSWatcher {
     watcher: RecommendedWatcher,
     pub rx: sync::mpsc::Receiver<Event>,
+}
+
+impl Stream for FSWatcher {
+    type Item = Event;
+
+    fn poll_next(mut self: std::pin::Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+        self.rx.poll_recv(cx)
+    }
 }
 
 impl FSWatcher {
