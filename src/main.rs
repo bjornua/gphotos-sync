@@ -3,13 +3,7 @@
 use clap::{App, AppSettings};
 
 mod commands;
-mod config;
-mod gauth;
-mod gphotos;
-mod hash;
-mod iterdir;
-mod upload;
-mod utils;
+mod lib;
 
 #[tokio::main]
 async fn main() -> () {

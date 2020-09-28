@@ -1,5 +1,7 @@
-use crate::config;
-use crate::upload;
+use crate::lib::config;
+use crate::lib::iterdir;
+use crate::lib::upload;
+
 use clap::{App, Arg, ArgMatches, SubCommand};
 
 pub fn get_subcommand() -> App<'static, 'static> {
@@ -31,7 +33,7 @@ async fn main(matches: &ArgMatches<'_>) -> Result<(), MainError> {
 
     let mut cfg = config::load("./gphotos-sync.cbor").map_err(MainError::LoadConfig)?;
 
-    let files = crate::iterdir::findfiles_with_ext(directory).filter_map(Result::ok);
+    let files = iterdir::findfiles_with_ext(directory).filter_map(Result::ok);
 
     upload::upload_many(&mut cfg.credentials, &mut cfg.uploaded_files, files)
         .await

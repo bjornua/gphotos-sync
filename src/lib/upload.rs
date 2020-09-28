@@ -1,6 +1,6 @@
-use crate::gauth;
-use crate::gphotos;
-use crate::hash::{hash_file, HashFileError, Hashes};
+use crate::lib::gauth;
+use crate::lib::gphotos;
+use crate::lib::hash::{hash_file, HashFileError, Hashes};
 
 #[derive(Debug)]
 pub enum UploadError {

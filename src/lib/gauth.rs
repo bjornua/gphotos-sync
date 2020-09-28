@@ -9,6 +9,7 @@ use std::borrow::Cow;
 use std::ffi::OsString;
 use std::sync::{Arc, Mutex};
 use std::thread::spawn;
+
 #[derive(Debug)]
 pub enum OauthError {
     OauthAuthError(OauthAuthError),

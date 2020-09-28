@@ -1,4 +1,5 @@
-use crate::config;
+use crate::lib::config;
+use crate::lib::gauth;
 
 use clap::{App, ArgMatches, SubCommand};
 
@@ -8,7 +9,7 @@ pub fn get_subcommand() -> App<'static, 'static> {
 
 pub async fn command(_matches: &ArgMatches<'_>) {
     println!("Opening browser. Follow the instructions to authenticate gphotos-sync.");
-    let credentials = match crate::gauth::oauth().await {
+    let credentials = match gauth::oauth().await {
         Ok(credentials) => credentials,
         Err(error) => {
             println!("{:?}", error);

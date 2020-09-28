@@ -1,4 +1,4 @@
-use crate::utils::path_matches_ext;
+use crate::lib::utils::path_matches_ext;
 use std::ffi::OsString;
 use std::fs::{read_dir, DirEntry, ReadDir};
 

@@ -1,5 +1,5 @@
-use crate::gauth::Credentials;
-use crate::hash::Hashes;
+use crate::lib::gauth::Credentials;
+use crate::lib::hash::Hashes;
 
 #[derive(serde::Serialize, serde::Deserialize, Clone)]
 #[serde(deny_unknown_fields)]

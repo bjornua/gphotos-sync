@@ -1,10 +1,10 @@
-use crate::config;
+use crate::lib::config;
+use crate::lib::fswatcher::{self, FSWatcher};
 // use crate::gauth::Credentials;
 // use crate::hash::Hashes;
 // use crate::upload;
 // use crate::utils::path_matches_ext;
 use clap::{App, Arg, ArgMatches, SubCommand};
-use notify::{self, Watcher};
 
 use core::future::Future;
 use futures::future;
@@ -25,6 +25,7 @@ pub fn get_subcommand() -> App<'static, 'static> {
 #[derive(Debug)]
 enum MainError {
     LoadConfig(config::LoadError),
+    WatchFilesError(WatchFilesError),
 }
 
 pub async fn command(matches: &ArgMatches<'_>) {
@@ -41,7 +42,7 @@ async fn main_loop(path: &std::path::Path) -> Result<(), MainError> {
         cfg_path.push("gphotos-sync.cbor");
         let cfg = config::load(cfg_path).map_err(MainError::LoadConfig)?;
         let mut root_moved = watch_path_moved(path);
-        let mut file_changed_watcher = watch_file_changes(path).unwrap();
+        let file_changed_watcher = watch_files(path).map_err(MainError::WatchFilesError)?;
         let mut chunked_file_changed_watcher = file_changed_watcher.rx.ready_chunks(5);
 
         let mut file_changed = chunked_file_changed_watcher.next();
@@ -56,10 +57,10 @@ async fn main_loop(path: &std::path::Path) -> Result<(), MainError> {
                     break;
                 }
 
-                future::Either::Right((Some(changed_files), root_moved_back)) => {
-                    println!("File moved");
-                    root_moved = root_moved_back;
-                    sync_files(&cfg, changed_files).await;
+                future::Either::Right((Some(changed_files), root_moved_promise)) => {
+                    println!("{:?}", changed_files);
+                    root_moved = root_moved_promise;
+                    // sync_files(&cfg, changed_files).await;
                     file_changed = chunked_file_changed_watcher.next();
                 }
             };
@@ -68,46 +69,19 @@ async fn main_loop(path: &std::path::Path) -> Result<(), MainError> {
 }
 
 #[derive(Debug)]
-enum WatchFileChangesError {
-    CreateWatcherError(notify::Error),
-    WatchDir(notify::Error),
+enum WatchFilesError {
+    CreateWatcherError(fswatcher::Error),
+    StartWatchError(fswatcher::Error),
 }
 
-struct FileWatcher {
-    watcher: notify::RecommendedWatcher,
-    rx: tokio::sync::mpsc::Receiver<std::path::PathBuf>,
-}
+fn watch_files(path: &std::path::Path) -> Result<FSWatcher, WatchFilesError> {
+    let mut watcher = FSWatcher::new().map_err(WatchFilesError::CreateWatcherError)?;
 
-fn watch_file_changes(path: &std::path::Path) -> Result<FileWatcher, WatchFileChangesError> {
-    let (tx, rx) = tokio::sync::mpsc::channel::<std::path::PathBuf>(5);
-    let tx_rc = std::sync::Arc::new(tokio::sync::Mutex::new(tx));
-
-    let mut watcher: notify::RecommendedWatcher = notify::Watcher::new_immediate(
-        move |res: Result<notify::Event, notify::Error>| match res {
-            Ok(event) => {
-                let tx_rc = std::sync::Arc::clone(&tx_rc);
-
-                // println!("event: {:?}", event);
-                let path = event.paths.first().unwrap().clone();
-                tokio::spawn(async move { tx_rc.lock().await.send(path).await });
-            }
-            Err(e) => println!("watch error: {:?}", e),
-        },
-    )
-    .map_err(WatchFileChangesError::CreateWatcherError)
-    .unwrap();
     watcher
         .watch(path, notify::RecursiveMode::Recursive)
-        .map_err(WatchFileChangesError::WatchDir)
-        .unwrap();
+        .map_err(WatchFilesError::StartWatchError)?;
 
-    // futures::stream::once(Box::pin(async { std::path::PathBuf::new() }))
-    // return futures::stream::repeat(path.to_path_buf());
-
-    return Ok(FileWatcher {
-        watcher: watcher,
-        rx: rx,
-    });
+    return Ok(watcher);
 }
 
 // If any part of the watched path is moved, we should reset. Otherwise, the program keep
