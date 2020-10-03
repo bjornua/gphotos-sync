@@ -8,8 +8,8 @@ use clap::{App, Arg, ArgMatches, SubCommand};
 
 use core::future::Future;
 use futures::future;
-use futures::StreamExt;
 use futures::Stream;
+use futures::StreamExt;
 
 pub fn get_subcommand() -> App<'static, 'static> {
     SubCommand::with_name("watch")
@@ -73,20 +73,29 @@ enum WatchFilesError {
     CreateWatcherError(fswatcher::Error),
     StartWatchError(fswatcher::Error),
 }
-
-fn watch_files(path: &std::path::Path) -> Result<impl Stream<Item = Vec<fswatcher::Event>>, WatchFilesError> {
+fn watch_files(
+    path: &std::path::Path,
+) -> Result<impl Stream<Item = Vec<std::path::PathBuf>>, WatchFilesError> {
     let mut watcher = FSWatcher::new().map_err(WatchFilesError::CreateWatcherError)?;
 
     watcher
         .watch(path, notify::RecursiveMode::Recursive)
         .map_err(WatchFilesError::StartWatchError)?;
 
-    return Ok(watcher.ready_chunks(5));
+        use notify::event::{Event, EventKind,ModifyKind,CreateKind};
+
+    return Ok(watcher.filter_map(|e| {
+        async move {
+        
+        match e {
+            Event {paths, kind: EventKind::Modify(ModifyKind::Data(_)), attrs: _} =>  paths.into_iter().nth(0).clone(),
+            Event {paths, kind: EventKind::Create(CreateKind::File), attrs: _} =>  paths.into_iter().nth(0).clone(),
+        }
+    }}
+    ).ready_chunks(5));
+    
 }
 
-// If any part of the watched path is moved, we should reset. Otherwise, the program keep
-// For instance for the path
-// watching the old (moved) file descriptors.
 fn watch_path_moved(path: &std::path::Path) -> impl Future<Output = ()> {
     // notify::RecommendedWatcher::new(tx: Sender<Result<Event>>, delay: Duration)
     futures::future::pending()
