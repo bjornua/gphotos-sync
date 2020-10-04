@@ -5,6 +5,7 @@ use crate::lib::fswatcher::{self, FSWatcher};
 // use crate::upload;
 // use crate::utils::path_matches_ext;
 use clap::{App, Arg, ArgMatches, SubCommand};
+use notify::event::{CreateKind, Event, EventKind, ModifyKind};
 
 use core::future::Future;
 use futures::future;
@@ -82,18 +83,32 @@ fn watch_files(
         .watch(path, notify::RecursiveMode::Recursive)
         .map_err(WatchFilesError::StartWatchError)?;
 
-        use notify::event::{Event, EventKind,ModifyKind,CreateKind};
-
-    return Ok(watcher.filter_map(|e| {
-        async move {
-        
-        match e {
-            Event {paths, kind: EventKind::Modify(ModifyKind::Data(_)), attrs: _} =>  paths.into_iter().nth(0).clone(),
-            Event {paths, kind: EventKind::Create(CreateKind::File), attrs: _} =>  paths.into_iter().nth(0).clone(),
-        }
-    }}
-    ).ready_chunks(5));
-    
+    return Ok(Box::pin(
+        watcher
+            .filter_map(|e| async move {
+                let Event {
+                    paths,
+                    kind,
+                    attrs: _,
+                } = e;
+                match kind {
+                    EventKind::Modify(ModifyKind::Data(_)) => paths.into_iter().nth(0),
+                    EventKind::Create(CreateKind::File) => paths.into_iter().nth(0),
+                    EventKind::Any
+                    | EventKind::Modify(ModifyKind::Any)
+                    | EventKind::Modify(ModifyKind::Metadata(_))
+                    | EventKind::Modify(ModifyKind::Name(_))
+                    | EventKind::Modify(ModifyKind::Other)
+                    | EventKind::Create(CreateKind::Any)
+                    | EventKind::Create(CreateKind::Other)
+                    | EventKind::Create(CreateKind::Folder)
+                    | EventKind::Access(_)
+                    | EventKind::Remove(_)
+                    | EventKind::Other => None,
+                }
+            })
+            .ready_chunks(5),
+    ));
 }
 
 fn watch_path_moved(path: &std::path::Path) -> impl Future<Output = ()> {
