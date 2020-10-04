@@ -86,25 +86,11 @@ fn watch_files(
     return Ok(Box::pin(
         watcher
             .filter_map(|e| async move {
-                let Event {
-                    paths,
-                    kind,
-                    attrs: _,
-                } = e;
-                match kind {
-                    EventKind::Modify(ModifyKind::Data(_)) => paths.into_iter().nth(0),
-                    EventKind::Create(CreateKind::File) => paths.into_iter().nth(0),
-                    EventKind::Any
-                    | EventKind::Modify(ModifyKind::Any)
-                    | EventKind::Modify(ModifyKind::Metadata(_))
-                    | EventKind::Modify(ModifyKind::Name(_))
-                    | EventKind::Modify(ModifyKind::Other)
-                    | EventKind::Create(CreateKind::Any)
-                    | EventKind::Create(CreateKind::Other)
-                    | EventKind::Create(CreateKind::Folder)
-                    | EventKind::Access(_)
-                    | EventKind::Remove(_)
-                    | EventKind::Other => None,
+                match e {
+                    fswatcher::Event::FileCreated(f) => Some(f),
+                    fswatcher::Event::FileModified(f) => Some(f),
+                    fswatcher::Event::FolderCreated(f) => None,
+                    fswatcher::Event::FolderMoved(f) => None,
                 }
             })
             .ready_chunks(5),
