@@ -1,10 +1,14 @@
-use futures::stream::Stream;
+use futures::stream::{Chain, Stream, StreamExt};
 use notify::{
-    event::{CreateKind, EventKind, ModifyKind},
+    event::{CreateKind, EventKind, ModifyKind, RenameMode},
     RecommendedWatcher, Watcher,
 };
+use std::path::PathBuf;
 use std::task::{Context, Poll};
-use tokio::sync;
+use tokio::sync::{
+    self,
+    mpsc::{self, Receiver},
+};
 
 #[derive(Debug)]
 pub enum Error {
@@ -16,14 +20,33 @@ pub type WatchMode = notify::RecursiveMode;
 
 pub struct FSWatcher {
     watcher: RecommendedWatcher,
-    pub rx: sync::mpsc::Receiver<notify::Event>,
+    folder_rx: Receiver<Event>,
+    file_rx: Receiver<Event>,
+}
+#[derive(Debug)]
+pub enum Event {
+    FileModified(PathBuf),
+    PathMoved(PathBuf),
 }
 
-pub enum Event {
-    FileModified(std::path::PathBuf),
-    FileCreated(std::path::PathBuf),
-    FolderCreated(std::path::PathBuf),
-    FolderMoved(std::path::PathBuf),
+fn simplify_event(event: notify::Event) -> impl Iterator<Item = Event> {
+    let notify::Event {
+        attrs: _,
+        paths,
+        kind,
+    } = event;
+
+    return paths.into_iter().filter_map(move |p| {
+        return match kind {
+            EventKind::Modify(ModifyKind::Data(_)) | EventKind::Create(CreateKind::File) => {
+                Some(Event::FileModified(p))
+            }
+            EventKind::Modify(ModifyKind::Name(RenameMode::From))
+            | EventKind::Modify(ModifyKind::Name(RenameMode::To))
+            | EventKind::Modify(ModifyKind::Name(RenameMode::Both)) => Some(Event::PathMoved(p)),
+            _ => None,
+        };
+    });
 }
 
 impl Stream for FSWatcher {
@@ -33,49 +56,17 @@ impl Stream for FSWatcher {
         mut self: std::pin::Pin<&mut Self>,
         cx: &mut Context<'_>,
     ) -> Poll<Option<Self::Item>> {
-        loop {
-            let event = match self.rx.poll_recv(cx) {
-                Poll::Ready(Some(event)) => event,
-                Poll::Ready(None) => return Poll::Ready(None),
-                Poll::Pending => return Poll::Pending,
-            };
-            let notify::Event {
-                attrs: _,
-                paths,
-                kind,
-            } = event;
-
-            match kind {
-                EventKind::Modify(ModifyKind::Data(_)) => {
-                    return Poll::Ready(Some(Event::FileModified(
-                        paths.into_iter().nth(0).unwrap(),
-                    )))
-                }
-                EventKind::Create(CreateKind::File) => {
-                    return Poll::Ready(Some(Event::FileModified(
-                        paths.into_iter().nth(0).unwrap(),
-                    )))
-                }
-                EventKind::Any
-                | EventKind::Modify(ModifyKind::Any)
-                | EventKind::Modify(ModifyKind::Metadata(_))
-                | EventKind::Modify(ModifyKind::Name(_))
-                | EventKind::Modify(ModifyKind::Other)
-                | EventKind::Create(CreateKind::Any)
-                | EventKind::Create(CreateKind::Other)
-                | EventKind::Create(CreateKind::Folder)
-                | EventKind::Access(_)
-                | EventKind::Remove(_)
-                | EventKind::Other => continue,
-            };
-        }
+        self.events.poll_next_unpin(cx)
     }
 }
 
 impl FSWatcher {
     pub fn new() -> Result<FSWatcher, Error> {
-        let (tx, rx) = sync::mpsc::channel::<notify::Event>(5);
-        let tx_rc = std::sync::Arc::new(sync::Mutex::new(tx));
+        let (tx_file, rx_file) = mpsc::channel::<Event>(5);
+        let (tx_folder, rx_folder) = mpsc::channel::<Event>(5);
+
+        let tx_file = std::sync::Arc::new(sync::Mutex::new(tx_file));
+        let tx_folder = std::sync::Arc::new(sync::Mutex::new(tx_folder));
 
         let watcher: RecommendedWatcher =
             notify::Watcher::new_immediate(move |res: Result<notify::Event, notify::Error>| {
@@ -86,8 +77,18 @@ impl FSWatcher {
                             .build()
                             .unwrap();
                         runtime.block_on(async {
-                            let tx_rc = std::sync::Arc::clone(&tx_rc);
-                            tx_rc.lock().await.send(event).await.unwrap();
+                            for event in simplify_event(event) {
+                                match event {
+                                    e @ Event::FileModified(_) => {
+                                        let tx_file = std::sync::Arc::clone(&tx_file);
+                                        tx_file.lock().await.send(e).await.unwrap();
+                                    }
+                                    e @ Event::PathMoved(_) => {
+                                        let tx_folder = std::sync::Arc::clone(&tx_folder);
+                                        tx_folder.lock().await.send(e).await.unwrap();
+                                    }
+                                }
+                            }
                         });
                     }
                     Err(e) => println!("watch error: {:?}", e),
@@ -95,7 +96,10 @@ impl FSWatcher {
             })
             .map_err(Error::CreateWatcherError)?;
 
-        return Ok(FSWatcher { watcher, rx });
+        return Ok(FSWatcher {
+            watcher,
+            events: rx_folder.chain(rx_file),
+        });
     }
 
     pub fn watch(&mut self, path: &std::path::Path, watch_mode: WatchMode) -> Result<(), Error> {
