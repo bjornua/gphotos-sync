@@ -1,4 +1,4 @@
-use futures::stream::{Chain, Stream, StreamExt};
+use futures::stream::{Stream, StreamExt};
 use notify::{
     event::{CreateKind, EventKind, ModifyKind, RenameMode},
     RecommendedWatcher, Watcher,
@@ -20,8 +20,8 @@ pub type WatchMode = notify::RecursiveMode;
 
 pub struct FSWatcher {
     watcher: RecommendedWatcher,
-    folder_rx: Receiver<Event>,
-    file_rx: Receiver<Event>,
+    rx_folder: Receiver<Event>,
+    rx_file: Receiver<Event>,
 }
 #[derive(Debug)]
 pub enum Event {
@@ -56,7 +56,10 @@ impl Stream for FSWatcher {
         mut self: std::pin::Pin<&mut Self>,
         cx: &mut Context<'_>,
     ) -> Poll<Option<Self::Item>> {
-        self.events.poll_next_unpin(cx)
+        if let folder_ready @ Poll::Ready(_) = self.rx_folder.poll_next_unpin(cx) {
+            return folder_ready;
+        }
+        return self.rx_file.poll_next_unpin(cx);
     }
 }
 
@@ -98,7 +101,8 @@ impl FSWatcher {
 
         return Ok(FSWatcher {
             watcher,
-            events: rx_folder.chain(rx_file),
+            rx_file,
+            rx_folder,
         });
     }
 
