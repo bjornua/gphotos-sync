@@ -21,30 +21,53 @@ pub fn get_subcommand() -> App<'static, 'static> {
         )
 }
 
-#[derive(Debug)]
-enum MainError {
-    LoadConfig(config::LoadError),
-    WatchFilesError(WatchFilesError),
-    CanonicalizeError(std::io::Error),
-}
-
 pub async fn command(matches: &ArgMatches<'_>) {
     let path = std::path::Path::new(matches.value_of_os("DIRECTORY").unwrap());
 
-    if let Err(e) = main_loop(path).await {
-        println!("Error: {:?}", e);
-    };
+    main_loop(path).await;
 }
 
-async fn main_loop(path: &std::path::Path) -> Result<(), MainError> {
-    let path = path.canonicalize().map_err(MainError::CanonicalizeError)?;
-
+async fn main_loop(input_path: &std::path::Path) {
     loop {
+        let path = match input_path.canonicalize() {
+            Ok(path) => {
+                println!("Resolved path {:?} -> {:?}", input_path, path);
+                path
+            }
+            Err(e) => {
+                println!("Could not resolve path {:?}: {:}.", input_path, e);
+                println!("Restarting in 5 seconds.");
+                tokio::time::delay_for(std::time::Duration::from_secs(5)).await;
+                continue;
+            }
+        };
+
         let mut cfg_path = path.to_owned();
         cfg_path.push("gphotos-sync.cbor");
-        let cfg = config::load(cfg_path).map_err(MainError::LoadConfig)?;
-        let mut watcher = create_watcher(&path).map_err(MainError::WatchFilesError)?;
+        let cfg = match config::load(&cfg_path) {
+            Ok(cfg) => {
+                println!("Loaded config {:?}", cfg_path);
+                cfg
+            }
+            Err(e) => {
+                println!("Error loading config {:?}: {:?}.", path, e);
+                println!("Restarting in 5 seconds.");
+                tokio::time::delay_for(std::time::Duration::from_secs(5)).await;
+                continue;
+            }
+        };
 
+        let mut watcher = match create_watcher(&path) {
+            Ok(watcher) => watcher,
+            Err(e) => {
+                println!("Error starting watcher {:?}: {:?}.", path, e);
+                println!("Restarting in 5 seconds.");
+                tokio::time::delay_for(std::time::Duration::from_secs(5)).await;
+                continue;
+            }
+        };
+
+        println!("Listening for file changes...");
         while let Some(event) = watcher.next().await {
             match event {
                 fswatcher::Event::FileModified(file_path) => {
